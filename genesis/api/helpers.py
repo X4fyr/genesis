@@ -229,16 +229,34 @@ class CategoryPlugin(SessionPlugin, EventProcessor):
             self.app.session['statusmsg'] = []
         self.app.session['statusmsg'].append((self.text, False))
 
-    def redirapp(self, service, port):
-        if self.app.get_backend(apis.services.IServiceManager).get_status('transmission') == 'running':
-            return UI.JS(code='window.location.replace("/embapp/'+str(port)+'")')
+    def redirapp(self, service, port, ssl=False):
+        if self.app.get_backend(apis.services.IServiceManager).get_status(service) == 'running':
+            if ssl:
+                return UI.JS(code='window.location.replace("/embapp/'+str(port)+'/ssl")')
+            else:
+                return UI.JS(code='window.location.replace("/embapp/'+str(port)+'")')
         else:
             return UI.DialogBox(UI.Label(text='The service %s is not '
                 'running. Please start the service with the Status button '
                 'before continuing.' % service), hidecancel=True)
 
     def update_services(self):
-        apis.networkcontrol(self.app).port_changed(self)
+        apis.networkcontrol(self.app).port_changed(self.plugin_info)
+
+    def send_order(self, id, *params, **kwparams):
+        d = filter(lambda x: x.id == id,
+            self.app.grab_plugins(apis.orders.IListener))
+        if d:
+            d[0].order(*params)
+            return UI.JS(code="Genesis.selectCategory('%s')"%d[0].cat)
+        else:
+            self.put_message('err', 'No listener found for %s. '
+                'Please make sure the necessary plugin is installed.' % id)
+
+    def can_order(self, id):
+        d = filter(lambda x: x.id == id,
+            self.app.grab_plugins(apis.orders.IListener))
+        return d != []
 
 
 class ModuleConfig(Plugin):
@@ -283,12 +301,18 @@ class ModuleConfig(Plugin):
                 lbl = k
                 if k in self.labels:
                     lbl = self.labels[k]
-                if type(val) is bool:
+                if type(val) is str and hasattr(self, k+'_opts'):
+                    t.append(UI.Formline(
+                        UI.Select(*[UI.SelectOption(text=x, value=x, selected=x==val) for x in getattr(self, k+'_opts')], 
+                            id=k, name=k),
+                        text=lbl
+                    ))
+                elif type(val) is bool:
                     t.append(UI.Formline(
                         UI.CheckBox(name=k, checked=val),
                         text=lbl
                     ))
-                if type(val) is str:
+                elif type(val) is str:
                     t.append(UI.Formline(
                         UI.TextInput(name=k, value=val),
                         text=lbl,
@@ -302,5 +326,5 @@ class ModuleConfig(Plugin):
                 oval = getattr(self, k)
                 if type(oval) is str:
                     setattr(self, k, nval)
-                if type(oval) is bool:
+                elif type(oval) is bool:
                     setattr(self, k, nval=='1')

@@ -77,15 +77,33 @@ class RootDispatcher(URLHandler, SessionPlugin, EventProcessor, Plugin):
     @url('^/core/progress$')
     def serve_progress(self, req, sr):
         r = []
+        rm = []
         if self.app.session.has_key('statusmsg'):
+            clear = None
+            # Look for new messages pushed to the queue
             for msg in self.app.session['statusmsg']:
-                r.append({
-                    'id': msg[0],
-                    'type': 'statusbox',
-                    'owner': msg[0],
-                    'status': msg[1]
-                })
-            del self.app.session['statusmsg']
+                if msg[1]:
+                    r.append({
+                        'id': msg[0],
+                        'type': 'statusbox',
+                        'owner': msg[0],
+                        'status': msg[1]
+                    })
+                    clear = False
+                    rm.append(msg)
+            # Remove messages from queue when they are shown
+            for x in rm:
+                self.app.session['statusmsg'].remove(x)
+            # If a clear command is sent and no messages waiting, clear
+            for msg in self.app.session['statusmsg']:
+                if clear == None and msg[1] == False:
+                    r.append({
+                        'id': msg[0],
+                        'type': 'statusbox',
+                        'owner': msg[0],
+                        'status': msg[1]
+                    })
+                    del self.app.session['statusmsg']
         for p in sorted(self.app.grab_plugins(IProgressBoxProvider)):
             if p.has_progress():
                 r.append({
@@ -139,7 +157,7 @@ class RootDispatcher(URLHandler, SessionPlugin, EventProcessor, Plugin):
                     if c == self.selected_category:
                         exp = True
                     cat_vc.append(UI.Category(
-                        iconfont=c.iconfont,
+                        iconfont=c.plugin_info.iconfont if hasattr(c.plugin_info, 'iconfont') else c.iconfont,
                         name=c.text,
                         id=c.plugin_id,
                         counter=c.get_counter(),
@@ -188,9 +206,21 @@ class RootDispatcher(URLHandler, SessionPlugin, EventProcessor, Plugin):
     @url('^/embapp/.+')
     def goto_embed(self, req, start_response):
         path = req['PATH_INFO'].split('/')
+        host = req['HTTP_HOST']
+        bhost = req['HTTP_HOST'].split(':')[0]
+        ssl = False
+
+        try:
+            if path[3] == 'ssl':
+                ssl = True
+        except IndexError:
+            pass
 
         content = self.app.inflate('core:embapp')
         content.insertText('ea-port', ':' + path[2])
+        content.find('ea-link').set('href', req['wsgi.url_scheme']+'://'+host)
+        content.append('ea-frame-container', UI.IFrame(id='ea-frame', 
+            src=('https://' if ssl else 'http://')+bhost+':'+path[2]))
         self._cat_selected = 'dashboard'
         return content.render()
 

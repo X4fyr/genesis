@@ -5,13 +5,13 @@ from setuptools import find_packages
 
 setup(
     name='genesis',
-    version='0.4',
+    version='0.5.3',
     install_requires=[
         'pyOpenSSL',
         'gevent',
         'lxml>=2.2.4',
         'python-iptables',
-        'pyparsing',
+        'python-nginx',
     ],
     description='arkOS node management app',
     author='The CitizenWeb Project',

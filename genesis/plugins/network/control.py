@@ -25,27 +25,32 @@ class NetworkControl(apis.API):
     def add_webapp(self, d):
         servers = ServerManager(self.app)
         s = servers.add('webapps', d[0], 
-            d[0] + ' (' + d[1].name + ')', 'gen-earth', 
-            [('tcp', d[2].getvalue('port', '80'))])
+            d[0] + ' (' + d[1] + ')', 'gen-earth', 
+            [('tcp', d[2])])
         RuleManager(self.app).set(s, 2)
         FWMonitor(self.app).regen()
         FWMonitor(self.app).save()
 
-    def change_webapp(self, old_id, new_id, type, port):
+    def change_webapp(self, oldsite, newsite):
         servers = ServerManager(self.app)
         rm = RuleManager(self.app)
-        s = servers.get(old_id)[0]
+        s = servers.get(oldsite.name)[0]
         r = rm.get(s)
         rm.remove(s)
-        servers.update(old_id, new_id, new_id + ' (' + type + ')',
-            'gen-earth', [('tcp', port)])
+        servers.update(oldsite.name, newsite.name, 
+            newsite.name + ' (' + newsite.stype + ')',
+            'gen-earth', [('tcp', newsite.port)])
         rm.set(s, r)
         FWMonitor(self.app).regen()
         FWMonitor(self.app).save()
 
     def remove_webapp(self, sid):
         servers = ServerManager(self.app)
-        s = servers.get(sid)[0]
+        s = servers.get(sid)
+        if s:
+            s = s[0]
+        else:
+            return
         RuleManager(self.app).remove(s)
         servers.remove(sid)
         FWMonitor(self.app).regen()
@@ -56,17 +61,17 @@ class NetworkControl(apis.API):
         rm = RuleManager(self.app)
         for p in s.services:
             try:
-                if p[2] != [] and sm.get(p[1]) != []:
-                    sg = sm.get(p[1])[0]
+                if p['ports'] != [] and sm.get(p['binary']) != []:
+                    sg = sm.get(p['binary'])[0]
                     r = rm.get(sg)
                     rm.remove(sg)
-                    sm.update(p[1], p[1], p[0], 
-                        s.iconfont, p[2])
+                    sm.update(p['binary'], p['binary'], p['name'], 
+                        s.iconfont, p['ports'])
                     rm.set(sg, r)
-                elif p[2] != []:
-                    sg = sm.get(p[1])[0]
-                    sm.add(s.plugin_id, p[1], p[0], 
-                        s.iconfont, p[2])
+                elif p['ports'] != []:
+                    sg = sm.get(p['binary'])[0]
+                    sm.add(s.plugin_id, p['binary'], p['name'], 
+                        s.iconfont, p['ports'])
                     rm.set(sg, 2)
                 FWMonitor(self.app).regen()
                 FWMonitor(self.app).save()

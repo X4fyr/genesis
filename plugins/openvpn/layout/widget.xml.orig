@@ -1,0 +1,24 @@
+<xml>
+    <lt width="90%">
+        <ltr>
+            <ltd width="40%" spacing="0">
+                <hcontainer>
+                    <iconfont iconfont="gen-tree" />
+                    <label text="Clients:"/><label id="nclients" />
+                </hcontainer>
+            </ltd>
+            <ltd width="30%" spacing="0">
+                <hcontainer>
+                    <iconfont iconfont="gen-download" />
+                    <label id="bytesin" />
+                </hcontainer>
+            </ltd>
+            <ltd width="30%" spacing="0">
+                <hcontainer>
+                    <iconfont iconfont="gen-upload" />
+                    <label id="bytesout" />
+                </hcontainer>
+            </ltd>
+        </ltr>
+    </lt>
+</xml>

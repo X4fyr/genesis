@@ -4,11 +4,11 @@ import ntplib
 import platform
 import os
 import mimetypes
-import urllib
+import urllib2
 from datetime import datetime
 from hashlib import sha1
 from base64 import b64encode
-from passlib.hash import sha512_crypt
+from passlib.hash import sha512_crypt, bcrypt
 
 
 class SystemTime:
@@ -18,8 +18,19 @@ class SystemTime:
         else:
             return time.localtime()
 
+    def get_idatetime(self):
+        ntp = ntplib.NTPClient()
+        resp = ntp.request('0.pool.ntp.org', version=3)
+        return resp.tx_time
+
+    def set_datetime(self, dt=''):
+        dt = dt if dt else self.get_idatetime()
+        e = shell_cs('date -s @%s' % dt)
+        if e[0] != 0:
+            raise Exception('System time could not be set. Error: %s' % str(e[1]))
+
     def get_serial_time(self):
-            return time.strftime('%Y%m%d%H%M%S')
+        return time.strftime('%Y%m%d%H%M%S')
 
     def get_date(self):
         return time.strftime('%d %b %Y')
@@ -70,6 +81,39 @@ def netmask_to_cidr(mask):
         binary_str += bin(int(octet))[2:].zfill(8)
     return len(binary_str.rstrip('0'))
 
+def detect_architecture():
+    """
+    Returns a tuple: current system architecture, and board type
+    (if it can be determined).
+    :rtype:             tuple(str, str)
+    """
+    arch, btype = 'Unknown', 'Unknown'
+    # Get architecture
+    for x in shell('lscpu').split('\n'):
+        if x.split() and 'Architecture' in x.split()[0]: 
+            arch = x.split()[1]
+            break
+    # Let's play a guessing game!
+    if arch == 'armv6l':
+        for x in shell('cat /proc/cpuinfo').split('\n'):
+            # Parse output of function function c_show in linux/arch/arm/kernel/setup.c
+            k, _, v = x.partition(':')
+            # Is this a... Raspberry Pi?
+            if 'Hardware' in k and v.strip() in ('BCM2708', 'BCM2835'):
+                btype = 'Raspberry Pi'
+                break
+            # Is this a... BeagleBone Black?
+            elif 'Hardware' in k and 'Generic AM33XX' in v.strip():
+                btype = 'BeagleBone Black'
+                break
+            # Is this a... Cubietruck?
+            elif 'Hardware' in k and v.strip() == 'sun7i':
+                btype = 'Cubietruck'
+                break
+    elif arch in ['x86_64', 'i686']:
+        btype = 'General'
+    return (arch, btype)
+
 def detect_platform(mapping=True):
     """
     Returns a text shortname of the current system platform.
@@ -118,7 +162,7 @@ def detect_distro():
     Returns human-friendly OS name.
     """
     if shell_status('lsb_release -sd') == 0:
-        return shell('lsb_release -sd')
+        return shell('lsb_release -sd').replace('"', '')
     return shell('uname -mrs')
 
 def download(url, file=None, crit=False):
@@ -130,7 +174,7 @@ def download(url, file=None, crit=False):
     :rtype:         None or str
     """
     try:
-        data = urllib.urlopen(url).read()
+        data = urllib2.urlopen(url).read()
         if file:
             open(file, 'w').write(data)
         else:
@@ -139,13 +183,14 @@ def download(url, file=None, crit=False):
         if crit:
             raise
 
-def shell(c, stderr=False):
+def shell(c, stderr=False, env={}):
     """
     Runs commandline in the default shell and returns output. Blocking.
     """
     p = subprocess.Popen('LC_ALL=C '+c, shell=True,
             stderr=subprocess.PIPE,
-            stdout=subprocess.PIPE)
+            stdout=subprocess.PIPE,
+            env=env if env else None)
 
     try:
         data = p.stdout.read() # Workaround; waiting first causes a deadlock
@@ -180,13 +225,14 @@ def shell_status(c):
             stderr=subprocess.PIPE,
             stdout=subprocess.PIPE).wait()
 
-def shell_cs(c, stderr=False):
+def shell_cs(c, stderr=False, env={}):
     """
     Same, but returns exitcode and output in a tuple.
     """
     p = subprocess.Popen('LC_ALL=C '+c, shell=True,
             stderr=subprocess.PIPE,
-            stdout=subprocess.PIPE)
+            stdout=subprocess.PIPE,
+            env=env if env else None)
 
     try:
         data = p.stdout.read() # Workaround; waiting first causes a deadlock
@@ -210,13 +256,33 @@ def shell_stdin(c, input):
 def hashpw(passw, scheme = 'sha512_crypt'):
     """
     Returns a hashed form of given password. Default scheme is
-    sha512_crypt.
+    sha512_crypt. Accepted schemes: sha512_crypt, bcrypt, sha (deprecated)
     """
     if scheme == 'sha512_crypt':
         return sha512_crypt.encrypt(passw)
+    elif scheme == 'bcrypt':
+        # TODO: rounds should be configurable
+        return bcrypt.encrypt(passw, rounds=12)
+    elif scheme == 'ssha':
+        salt = os.urandom(32)
+        return '{SSHA}' + b64encode(sha1(passw + salt).digest() + salt)
+    # This scheme should probably be dropped to avoid creating new
+    # unsaltes SHA1 hashes.
     elif scheme == 'sha':
+        import warnings
+        warnings.warn(
+            'SHA1 as a password hash may be removed in a future release.')
         return '{SHA}' + b64encode(sha1(passw).digest())
     return sha512_crypt.encrypt(passw)
+
+
+def can_be_int(data):
+    try: 
+        int(data)
+        return True
+    except ValueError:
+        return False
+
 
 def str_fsize(sz):
     """

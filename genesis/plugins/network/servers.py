@@ -1,6 +1,7 @@
 from genesis import apis
 from genesis.com import *
 from genesis.api import *
+from genesis.plugmgr import PluginLoader
 
 from api import *
 
@@ -66,7 +67,11 @@ class ServerManager(Plugin):
 			r = nc.get_ip(i.name)
 			if '127.0.0.1' in r or '0.0.0.0' in r:
 				continue
-			ri, rr = r.split('/')
+			if not '/' in r:
+			    ri = r
+			    rr = '32'
+			else:
+				ri, rr = r.split('/')
 			ri = ri.split('.')
 			ri[3] = '0'
 			ri = ".".join(ri)
@@ -75,17 +80,18 @@ class ServerManager(Plugin):
 		return ranges
 
 	def scan_plugins(self):
-		for c in self.app.grab_plugins(ICategoryProvider):
-			if hasattr(c, 'services'):
+		lst = PluginLoader.list_plugins()
+		for c in lst:
+			if hasattr(lst[c], 'services'):
 				for s in self.servers:
-					if c.plugin_id == s.plugin_id:
+					if lst[c].id == s.plugin_id:
 						break
 				else:
-					for p in c.services:
+					for p in lst[c].services:
 						try:
-							if p[2] != []:
-								self.add(c.plugin_id, p[1], p[0], 
-									c.iconfont, p[2])
+							if p['ports'] != []:
+								self.add(lst[c].id, p['binary'], p['name'], 
+									lst[c].iconfont, p['ports'])
 						except IndexError:
 							pass
 
@@ -94,8 +100,8 @@ class ServerManager(Plugin):
 			if x[1].plugin_id == 'webapps':
 				self.servers.pop(x[0])
 		for s in apis.webapps(self.app).get_sites():
-			self.add('webapps', s['name'], s['name'] + ' (' + s['type'] + ')',
-				'gen-earth', [('tcp', s['port'])])
+			self.add('webapps', s.name, s.name + ' (' + s.stype + ')',
+				'gen-earth', [('tcp', s.port)])
 
 	def remove(self, id):
 		for s in enumerate(self.servers):

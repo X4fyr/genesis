@@ -77,20 +77,26 @@ class UsersBackend(Plugin):
     def add_user(self, v):
         shell(self.cfg.cmd_add.format(v))
 
+    def add_sys_user(self, v):
+        shell(self.cfg.cmd_add_sys.format(v))
+
+    def add_sys_with_home(self, v):
+        shell(self.cfg.cmd_add_sys_with_home.format(v))
+
     def add_group(self, v):
         shell(self.cfg.cmd_add_group.format(v))
 
     def del_user(self, v):
         shell(self.cfg.cmd_del.format(v))
 
+    def del_user_with_home(self, v):
+        shell(self.cfg.cmd_del_with_home.format(v))
+
     def del_group(self, v):
         shell(self.cfg.cmd_del_group.format(v))
 
     def add_to_group(self, u, v):
         shell(self.cfg.cmd_add_to_group.format(u,v))
-
-    def remove_from_group(self, u, v):
-        shell(self.cfg.cmd_remove_from_group.format(u,v))
 
     def change_user_param(self, u, p, l):
         shell(getattr(self.cfg, 'cmd_set_user_'+p).format(l,u))
@@ -107,18 +113,20 @@ class LinuxConfig(ModuleConfig):
     platform = ['debian', 'arch', 'arkos', 'fedora', 'centos', 'gentoo', 'mandriva']
 
     cmd_add = 'useradd -m {0}'
+    cmd_add_sys = 'useradd -r {0}'
+    cmd_add_sys_with_home = 'useradd -rm {0}'
     cmd_del = 'userdel {0}'
+    cmd_del_with_home = 'userdel -r {0}'
     cmd_add_group = 'groupadd {0}'
     cmd_del_group = 'groupdel {0}'
     cmd_set_user_login = 'usermod -l {0} {1}'
     cmd_set_user_uid = 'usermod -u {0} {1}'
     cmd_set_user_gid = 'usermod -g {0} {1}'
     cmd_set_user_shell = 'usermod -s {0} {1}'
-    cmd_set_user_home = 'usermod -h {0} {1}'
+    cmd_set_user_home = 'usermod -d {0} {1}'
     cmd_set_group_gname = 'groupmod -n {0} {1}'
     cmd_set_group_ggid = 'groupmod -g {0} {1}'
-    cmd_add_to_group = 'adduser {0} {1}'
-    cmd_remove_from_group = 'deluser {0} {1}'
+    cmd_add_to_group = 'usermod -a -G {1} {0}'
 
 
 class BSDConfig(ModuleConfig):
@@ -127,6 +135,7 @@ class BSDConfig(ModuleConfig):
 
     cmd_add = 'pw useradd {0}'
     cmd_del = 'pw userdel {0}'
+    cmd_del_with_home = 'pw userdel -r {0}'
     cmd_add_group = 'pw groupadd {0}'
     cmd_del_group = 'pw groupdel {0}'
     cmd_set_user_login = 'pw usermod {1} -l {0}'

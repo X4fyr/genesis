@@ -15,7 +15,7 @@
 
 <xsl:template match="textinput">
         <input name="{@name}" value="{@value}" id="{@id}" class="{@design}" onkeypress="return noenter()" type="{x:iif(@password, 'password', 'text')}">
-            <xsl:if test="@disabled='true'">
+            <xsl:if test="@disabled != ''">
                 <xsl:attribute name="disabled">true</xsl:attribute>
             </xsl:if>
         </input>
@@ -44,6 +44,9 @@
 
 <xsl:template match="selectinput">
     <select name="{@name}" id="{@id}" class="{@design}">
+        <xsl:if test="@disabled != ''">
+            <xsl:attribute name="disabled" />
+        </xsl:if>
         <xsl:apply-templates />
     </select>
 </xsl:template>
@@ -100,4 +103,15 @@
         <input type="file" name="file"/>
         <input type="submit" class="ui-el-button" value="{x:attr(@text, 'Upload')}"/>
     </form>
+</xsl:template>
+
+<xsl:template match="fileinput">
+    <xsl:choose>
+        <xsl:when test="@multiple != ''">
+            <input type="file" name="{@id}" multiple="True" />
+        </xsl:when>
+        <xsl:otherwise>
+            <input type="file" name="{@id}" />
+        </xsl:otherwise>
+    </xsl:choose>
 </xsl:template>

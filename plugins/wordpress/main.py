@@ -5,6 +5,7 @@ from genesis import apis
 from genesis.utils import shell
 
 import hashlib
+import nginx
 import os
 import random
 import urllib
@@ -12,49 +13,47 @@ import urllib
 
 class WordPress(Plugin):
 	implements(apis.webapps.IWebapp)
-	name = 'WordPress'
-	dpath = 'https://wordpress.org/latest.tar.gz'
-	icon = 'gen-earth'
-	dbengine = 'MariaDB'
-	services = [('MariaDB', 'mysqld'), ('PHP FastCGI', 'php-fpm')]
-	php = True
-	nomulti = True
-	ssl = True
 
-	addtoblock = (
-		'	location = /favicon.ico {\n'
-		'		log_not_found off;\n'
-		'		access_log off;\n'
-		'	}\n'
-		'\n'
-		'	location = /robots.txt {\n'
-		'		allow all;\n'
-		'		log_not_found off;\n'
-		'		access_log off;\n'
-		'	}\n'
-		'\n'
-		'	location / {\n'
-		'		try_files $uri $uri/ /index.php?$args;\n'
-		'	}\n'
-		'\n'
-		'	location ~ \.php$ {\n'
-		'		fastcgi_pass unix:/run/php-fpm/php-fpm.sock;\n'
-		'		fastcgi_index index.php;\n'
-		'		include fastcgi.conf;\n'
-		'}\n'
-		'\n'
-		'	location ~* \.(js|css|png|jpg|jpeg|gif|ico)$ {\n'
-		'		expires max;\n'
-		'		log_not_found off;\n'
-		'	}\n'
-		)
+	addtoblock = [
+		nginx.Location('= /favicon.ico',
+			nginx.Key('log_not_found', 'off'),
+			nginx.Key('access_log', 'off')
+			),
+		nginx.Location('= /robots.txt',
+			nginx.Key('allow', 'all'),
+			nginx.Key('log_not_found', 'off'),
+			nginx.Key('access_log', 'off')
+			),
+		nginx.Location('/',
+			nginx.Key('try_files', '$uri $uri/ /index.php?$args')
+			),
+		nginx.Location('~ \.php$',
+			nginx.Key('fastcgi_pass', 'unix:/run/php-fpm/php-fpm.sock'),
+			nginx.Key('fastcgi_index', 'index.php'),
+			nginx.Key('include', 'fastcgi.conf')
+			),
+		nginx.Location('~* \.(js|css|png|jpg|jpeg|gif|ico)$',
+			nginx.Key('expires', 'max'),
+			nginx.Key('log_not_found', 'off')
+			)
+		]
 
 	def pre_install(self, name, vars):
-		pass
+		dbname = vars.getvalue('wp-dbname', '')
+		dbpasswd = vars.getvalue('wp-dbpasswd', '')
+		if dbname and dbpasswd:
+			apis.databases(self.app).get_interface('MariaDB').validate(
+				dbname, dbname, dbpasswd)
+		elif dbname:
+			raise Exception('You must enter a database password if you specify a database name!')
+		elif dbpasswd:
+			raise Exception('You must enter a database name if you specify a database password!')
 
 	def post_install(self, name, path, vars):
 		# Get the database object, and determine proper values
+		phpctl = apis.langassist(self.app).get_interface('PHP')
 		dbase = apis.databases(self.app).get_interface('MariaDB')
+		conn = apis.databases(self.app).get_dbconn('MariaDB')
 		if vars.getvalue('wp-dbname', '') == '':
 			dbname = name
 		else:
@@ -66,9 +65,9 @@ class WordPress(Plugin):
 			passwd = vars.getvalue('wp-dbpasswd')
 
 		# Request a database and user to interact with it
-		dbase.add(dbname)
-		dbase.usermod(dbname, 'add', passwd)
-		dbase.chperm(dbname, dbname, 'grant')
+		dbase.add(dbname, conn)
+		dbase.usermod(dbname, 'add', passwd, conn)
+		dbase.chperm(dbname, dbname, 'grant', conn)
 
 		# Use the WordPress key generators as first option
 		# If connection fails, use the secret_key as fallback
@@ -97,9 +96,7 @@ class WordPress(Plugin):
 				'define(\'WP_CACHE\', true);\n'
 				'define(\'FORCE_SSL_ADMIN\', false);\n'
 				'\n'
-				'/*\n'
 				+keysection+
-				'*/\n'
 				'\n'
 				'$table_prefix = \'wp_\';\n'
 				'\n'
@@ -113,8 +110,7 @@ class WordPress(Plugin):
 		f.close()
 
 		# Make sure that the correct PHP settings are enabled
-		shell('sed -i s/\;extension=mysql.so/extension=mysql.so/g /etc/php/php.ini')
-		shell('sed -i s/\;extension=apc.so/extension=apc.so/g /etc/php/conf.d/apc.ini')
+		phpctl.enable_mod('mysql', 'xcache')
 
 		# Finally, make sure that permissions are set so that Wordpress
 		# can make adjustments and save plugins when need be.
@@ -129,8 +125,9 @@ class WordPress(Plugin):
 				break
 		f.close()
 		dbase = apis.databases(self.app).get_interface('MariaDB')
-		dbase.remove(dbname)
-		dbase.usermod(dbname, 'del', '')
+		conn = apis.databases(self.app).get_dbconn('MariaDB')
+		dbase.remove(dbname, conn)
+		dbase.usermod(dbname, 'del', '', conn)
 
 	def post_remove(self, name):
 		pass
@@ -168,16 +165,3 @@ class WordPress(Plugin):
 			oc.append('define(\'FORCE_SSL_ADMIN\', false);\n')
 		f.writelines(oc)
 		f.close()
-
-	def get_info(self):
-		return {
-			'name': 'WordPress',
-			'short': 'Open-source CMS and blogging platform',
-			'long': ('WordPress started as just a blogging system, '
-					'but has evolved to be used as full content management system '
-					'and so much more through the thousands of plugins, widgets, '
-					'and themes, WordPress is limited only by your imagination. '
-					'(And tech chops.)'),
-			'site': 'http://wordpress.org',
-			'logo': True
-		}

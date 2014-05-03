@@ -1,17 +1,23 @@
 import os
+import re
 
 from genesis.api import *
 from genesis.ui import *
 from genesis.utils import *
 from genesis.plugmgr import RepositoryManager
-
-import zonelist
+from genesis.plugins.network import backend
 from genesis.plugins.users.backend import *
+from genesis.plugins.sysconfig import zonelist
 
 class FirstRun(CategoryPlugin, URLHandler):
     text = 'First run wizard'
     iconfont = None
     folder = None
+
+    def on_init(self):
+        self.nb = backend.Config(self.app)
+        self.ub = UsersBackend(self.app)
+        self.arch = detect_architecture()
 
     def on_session_start(self):
         self._step = 1
@@ -26,14 +32,21 @@ class FirstRun(CategoryPlugin, URLHandler):
         ui.append('content', step)
 
         if self._step == 4:
+            if self.arch[1] != 'Raspberry Pi':
+                ui.remove('rpi-sdc')
+                ui.remove('rpi-ogm')
             tz_sel = [UI.SelectOption(text = x, value = x,
                         selected = False)
                         for x in zonelist.zones]
             ui.appendAll('zoneselect', *tz_sel)
 
         if self._step == 5:
-            self._mgr = RepositoryManager(self.app.config)
-            self._mgr.update_list()
+            self._mgr = RepositoryManager(self.app.log, self.app.config)
+            try:
+                self._mgr.update_list(crit=True)
+            except Exception, e:
+                self.put_message('err', str(e))
+                self.app.log.error(str(e))
 
             lst = self._mgr.available
 
@@ -58,7 +71,10 @@ class FirstRun(CategoryPlugin, URLHandler):
 
     def resize(self):
         shell_stdin('fdisk /dev/mmcblk0', 'd\n2\nn\np\n2\n\n\nw\n')
-        shell('(crontab -l ; echo "@reboot resize2fs /dev/mmcblk0p2") | crontab -')
+        f = open('/etc/cron.d/resize', 'w')
+        f.write('@reboot root resize2fs /dev/mmcblk0p2\n')
+        f.write('@reboot root rm /etc/cron.d/resize\n')
+        f.close()
         self.app.gconfig.set('genesis', 'restartmsg', 'yes')
         self.app.gconfig.save()
 
@@ -77,10 +93,11 @@ class FirstRun(CategoryPlugin, URLHandler):
                 self.put_message('err', 'The password can\'t be empty')
             elif self._password != self._password_again:
                 self.put_message('err', 'The passwords don\'t match')
+            elif re.search('[A-Z]|\.|:|[ ]|-$', self._username):
+                self.put_message('err', 'Username must not contain capital letters, dots, colons, spaces, or end with a hyphen')
             else:
                 # add Unix user
-                self.backend = UsersBackend(self.app)
-                users = self.backend.get_all_users()
+                users = self.ub.get_all_users()
                 for u in users:
                     if u.login == self._username:
                         self.put_message('err', 'Duplicate name, please choose another')
@@ -99,9 +116,20 @@ class FirstRun(CategoryPlugin, URLHandler):
         if params[0] == 'frmSettings':
             hostname = vars.getvalue('hostname', '')
             zone = vars.getvalue('zoneselect', 'UTC')
-            resize = vars.getvalue('resize', 'False')
-            gpumem = vars.getvalue('gpumem', 'False')
-            ssh_as_root = vars.getvalue('ssh_as_root', 'False')
+            resize = vars.getvalue('resize', '0') if self.arch[1] == 'Raspberry Pi' else '0'
+            gpumem = vars.getvalue('gpumem', '0') if self.arch[1] == 'Raspberry Pi' else '0'
+            ssh_as_root = vars.getvalue('ssh_as_root', '0')
+
+            if not hostname:
+                self.put_message('err', 'Hostname must not be empty')
+                return
+            elif not re.search('^[a-zA-Z0-9.-]', hostname) or re.search('(^-.*|.*-$)', hostname):
+                self.put_message('err', 'Hostname must only contain '
+                    'letters, numbers, hyphens or periods, and must '
+                    'not start or end with a hyphen.')
+                return
+            else:
+                self.nb.sethostname(hostname)
             
             if resize != '0':
                 reboot = self.resize()
@@ -111,9 +139,6 @@ class FirstRun(CategoryPlugin, URLHandler):
                 shell('sed -i "/PermitRootLogin no/c\PermitRootLogin yes" /etc/ssh/sshd_config')
             else:
                 shell('sed -i "/PermitRootLogin yes/c\PermitRootLogin no" /etc/ssh/sshd_config')
-            
-            if hostname != '0':
-                shell('echo "' + hostname + '" > /etc/hostname')
 
             if gpumem != '0':
                 shell('mount /dev/mmcblk0p1 /boot')
@@ -123,9 +148,9 @@ class FirstRun(CategoryPlugin, URLHandler):
                     shell('echo "gpu_mem=16" >> /boot/config.txt')
 
             zone = zone.split('/')
-            try:
+            if len(zone) > 1:
                 zonepath = os.path.join('/usr/share/zoneinfo', zone[0], zone[1])
-            except IndexError:
+            else:
                 zonepath = os.path.join('/usr/share/zoneinfo', zone[0])
             if os.path.exists('/etc/localtime'):
                 os.remove('/etc/localtime')
@@ -133,6 +158,21 @@ class FirstRun(CategoryPlugin, URLHandler):
             self._step = 5
         if params[0] == 'frmPlugins':
             lst = self._mgr.available
+
+            toinst = []
+
+            for k in lst:
+                if vars.getvalue('install-'+k.id, '0') == '1':
+                    toinst.append(k.id)
+
+            t = self._mgr.list_available()
+            for y in toinst:
+                for i in t[y].deps:
+                    for dep in i[1]:
+                        if dep[0] == 'plugin' and dep[1] not in toinst:
+                            self.put_message('err', ('%s can\'t be installed, as it depends on %s. Please '
+                                'install that also.' % (t[y].name, t[dep[1]].name)))
+                            return
 
             for k in lst:
                 if vars.getvalue('install-'+k.id, '0') == '1':
@@ -148,10 +188,9 @@ class FirstRun(CategoryPlugin, URLHandler):
             self.put_message('info', 'Setup complete!')
 
             # change root password, add Unix user, and allow sudo use
-            self.backend = UsersBackend(self.app)
-            self.backend.change_user_password('root', self._root_password)            
-            self.backend.add_user(self._username)
-            self.backend.change_user_password(self._username, self._password)
+            self.ub.change_user_password('root', self._root_password)            
+            self.ub.add_user(self._username)
+            self.ub.change_user_password(self._username, self._password)
             sudofile = open('/etc/sudoers', 'r+')
             filedata = sudofile.readlines()
             filedata = ["%sudo ALL=(ALL) ALL\n" if "# %sudo" in line else line for line in filedata]
@@ -160,7 +199,8 @@ class FirstRun(CategoryPlugin, URLHandler):
             for thing in filedata:
                 sudofile.write(thing)
             sudofile.close()
-            shell('usermod -a -G sudo ' + self._username)
+            self.ub.add_group('sudo')
+            self.ub.add_to_group(self._username, 'sudo')
 
             # add user to Genesis config
             self.app.gconfig.remove_option('users', 'admin')

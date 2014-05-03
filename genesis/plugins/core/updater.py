@@ -16,13 +16,13 @@ class FeedUpdater (Component):
         return self.feed
 
     def run(self):
-        rm = RepositoryManager(self.app.config)
+        rm = RepositoryManager(self.app.log, self.app.config)
         feed_url = feedparser.parse('http://arkos.io/feed')
 
         while True:
             try:
                 self.feed = []
-                rm.update_list()
+                rm.update_list(crit=True)
                 for e in feed_url.entries:
                     self.feed.append({'title': e.title, 'link': e.link, 
                         'time': e.published_parsed})
@@ -41,7 +41,9 @@ class UpdateCheck(Component):
     def get_status(self):
         return (self.update, self.version)
 
-    def check_updates(self):
+    def check_updates(self, refresh=False):
+        if refresh:
+            shell('pacman -Sy')
         out = shell('pacman -Qu')
         try:
             for thing in out.split('\n'):
@@ -60,6 +62,6 @@ class UpdateCheck(Component):
             status = '1'
         if status == '1':
             platform = detect_platform()
-            if platform == 'arkos' or platform == 'arch':
+            if platform == 'arkos':
                 self.check_updates()
                 time.sleep(60*60*24) # check once every day

@@ -9,9 +9,6 @@ class SSHPlugin(apis.services.ServiceControlPlugin):
     text = 'SSH'
     iconfont = 'gen-console'
     folder = 'advanced'
-    services = [('SSH Server', 'sshd', [('tcp', '22')])]
-
-    fail2ban = [{'name': 'ssh-iptables'}]
 
     def on_init(self):
         ss = backend.SSHConfig(self.app)
@@ -70,7 +67,10 @@ class SSHPlugin(apis.services.ServiceControlPlugin):
             self._editing = int(params[1])
         if params[0] == 'del':
             self.pkeys.pop(int(params[1]))
-            backend.PKeysConfig(self.app).save(self.pkeys)
+            try:
+                backend.PKeysConfig(self.app).save(self.pkeys)
+            except Exception, e:
+                self.put_message('err', 'Failed to save private keys config: %s' % str(e))
 
     @event('form/submit')
     @event('dialog/submit')
@@ -90,7 +90,10 @@ class SSHPlugin(apis.services.ServiceControlPlugin):
                     self.pkeys[self._editing] = h
                 except:
                     self.pkeys.append(h)
-                backend.PKeysConfig(self.app).save(self.pkeys)
+                try:
+                    backend.PKeysConfig(self.app).save(self.pkeys)
+                except Exception, e:
+                    self.put_message('err', 'Failed to save private keys config: %s' % str(e))
             self._editing = None
         if params[0] == 'frmSSH':
             v = vars.getvalue('value', '')

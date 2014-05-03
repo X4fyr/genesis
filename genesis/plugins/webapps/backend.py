@@ -1,12 +1,12 @@
 from genesis.com import Plugin, Interface, implements
 from genesis.utils import shell, shell_cs, download
 from genesis import apis
+from api import Webapp
 
+import nginx
 import os
 import re
 import shutil
-
-import nginxparser
 
 
 class InstallError(Exception):
@@ -32,17 +32,22 @@ class ReloadError(Exception):
 
 
 class WebappControl(Plugin):
-	def add(self, cat, name, webapp, vars, enable=True):
+	def add(self, cat, name, wa, vars, enable=True):
 		specialmsg = ''
+		webapp = apis.webapps(self.app).get_interface(wa.wa_plugin)
 
-		if webapp.dpath is None:
+		if not wa.dpath:
 			ending = ''
-		elif webapp.dpath.endswith('.tar.gz'):
+		elif wa.dpath.endswith('.tar.gz'):
 			ending = '.tar.gz'
-		elif webapp.dpath.endswith('.tar.bz2'):
+		elif wa.dpath.endswith('.tar.bz2'):
 			ending = '.tar.bz2'
+		elif wa.dpath.endswith('.zip'):
+			ending = '.zip'
+		elif wa.dpath.endswith('.git'):
+			ending = '.git'
 		else:
-			raise InstallError('Only gzip and bzip packages supported for now')
+			raise InstallError('Only GIT repos, gzip, bzip, and zip packages supported for now')
 
 		# Run webapp preconfig, if any
 		try:
@@ -60,16 +65,25 @@ class WebappControl(Plugin):
 		os.makedirs(target_path)
 
 		# Download and extract the source package
-		if webapp.dpath is not None:
+		if wa.dpath and ending == '.git':
+			status = shell_cs('git clone %s %s'%(wa.dpath,target_path), stderr=True)
+			if status[0] >= 1:
+				raise InstallError(status[1])
+		elif wa.dpath:
 			try:
 				cat.put_statusmsg('Downloading webapp package...')
-				download(webapp.dpath, file=pkg_path)
+				download(wa.dpath, file=pkg_path, crit=True)
 			except Exception, e:
 				raise InstallError('Couldn\'t download - %s' % str(e))
-			status = shell_cs('tar '
-				+('xzf' if ending is '.tar.gz' else 'xjf')
-				+' /tmp/'+name+ending+' -C '
-				+target_path+' --strip 1', stderr=True)
+
+			if ending in ['.tar.gz', '.tar.bz2']:
+				extract_cmd = 'tar '
+				extract_cmd += 'xzf' if ending is '.tar.gz' else 'xjf'
+				extract_cmd += ' /tmp/%s -C %s --strip 1' % (name+ending, target_path)
+			else:
+				extract_cmd = 'unzip -d %s /tmp/%s' % (target_path, name+ending)
+
+			status = shell_cs(extract_cmd, stderr=True)
 			if status[0] >= 1:
 				raise InstallError(status[1])
 			os.remove(pkg_path)
@@ -77,16 +91,26 @@ class WebappControl(Plugin):
 		php = vars.getvalue('php', '')
 		addtoblock = vars.getvalue('addtoblock', '')
 
+		if addtoblock:
+			addtoblock = nginx.loads(addtoblock, False)
+		else:
+			addtoblock = []
+		if wa.wa_plugin == 'Website' and php == '1' and addtoblock:
+			addtoblock.extend(x for x in webapp.phpblock)
+		elif wa.wa_plugin == 'Website' and php == '1':
+			addtoblock = webapp.phpblock
+
 		# Setup the webapp and create an nginx serverblock
 		try:
-			self.nginx_add(
-				name=name, 
-				stype=webapp.name, 
-				path=target_path, 
-				addr=vars.getvalue('addr', 'localhost'), 
-				port=vars.getvalue('port', '80'), 
-				add=(addtoblock if addtoblock is not '' else webapp.addtoblock), 
-				php=(True if webapp.php is True or php is '1' else False)
+			w = Webapp()
+			w.name = name
+			w.stype = wa.wa_plugin
+			w.path = target_path
+			w.addr = vars.getvalue('addr', 'localhost')
+			w.port = vars.getvalue('port', '80')
+			w.php = True if wa.php is True or php is '1' else False
+			self.nginx_add(site=w, 
+				add=addtoblock if addtoblock else webapp.addtoblock, 
 				)
 		except Exception, e:
 			raise PartialError('nginx serverblock couldn\'t be written - '+str(e))
@@ -95,100 +119,144 @@ class WebappControl(Plugin):
 			cat.put_statusmsg('Running post-install configuration...')
 			specialmsg = webapp.post_install(name, target_path, vars)
 		except Exception, e:
+			shutil.rmtree(target_path, True)
+			self.nginx_remove(w, False)
 			raise InstallError('Webapp config - '+str(e))
-
-		if webapp.name == 'Website' and php == '1':
-			addtoblock = webapp.phpblock + '\n' + addtoblock
 
 		if enable is True:
 			try:
-				self.nginx_enable(name)
+				self.nginx_enable(w)
 			except:
 				raise ReloadError('nginx')
-		if enable is True and webapp.php is True:
+		if enable is True and wa.php is True:
 			try:
-				self.php_enable()
 				self.php_reload()
 			except:
 				raise ReloadError('PHP-FPM')
+
+		# Make sure that nginx is enabled by default
+		cat.app.get_backend(apis.services.IServiceManager).enable('nginx')
 
 		cat.clr_statusmsg()
 
 		if specialmsg:
 			return specialmsg
 
+	def add_reverse_proxy(self, name, path, addr, port, block):
+		w = Webapp()
+		w.name = name
+		w.stype = 'ReverseProxy'
+		w.path = path
+		w.addr = addr
+		w.port = port
+		if not block:
+			block = [
+				nginx.Location('/admin/media/',
+					nginx.Key('root', '/usr/lib/python2.7/site-packages/django/contrib')
+				),
+				nginx.Location('/',
+					nginx.Key('proxy_set_header', 'X-Forwarded-For $proxy_add_x_forwarded_for'),
+					nginx.Key('proxy_set_header', 'Host $http_host'),
+					nginx.Key('proxy_redirect', 'off'),
+					nginx.If('(!-f $request_filename)',
+						nginx.Key('proxy_pass', 'unix:%s'%os.path.join(path, 'gunicorn.sock')),
+						nginx.Key('break', '')
+					)
+				)
+			]
+		self.nginx_add(w, block)
+		self.nginx_enable(w)
+
 	def remove(self, cat, site):
-		if site['class'] != '':
+		if site.sclass != '' and site.stype != 'ReverseProxy':
 			cat.put_statusmsg('Preparing for removal...')
-			site['class'].pre_remove(site['name'], site['path'])
+			site.sclass.pre_remove(site.name, site.path)
 		cat.put_statusmsg('Removing website...')
-		if site['path'].endswith('_site'):
-			shutil.rmtree(site['path'].rstrip('/_site'))
+		if site.path.endswith('_site'):
+			shutil.rmtree(site.path.split('/_site')[0])
+		elif site.path.endswith('htdocs'):
+			shutil.rmtree(site.path.split('/htdocs')[0])
 		else:
-			shutil.rmtree(site['path'])
-		self.nginx_remove(site['name'])
-		if site['class'] != '':
+			shutil.rmtree(site.path)
+		self.nginx_remove(site)
+		apis.webapps(self.app).cert_remove_notify(site.name,
+			site.stype)
+		if site.sclass != '' and site.stype != 'ReverseProxy':
 			cat.put_statusmsg('Cleaning up...')
-			site['class'].post_remove(site['name'])
+			site.sclass.post_remove(site.name)
+
 		cat.clr_statusmsg()
 
-	def nginx_add(self, name, stype, path, addr, port, add='', php=False):
-		# TODO update this to use nginxparser
-		if path == '':
-			path = os.path.join('/srv/http/webapps/', name)
-		f = open('/etc/nginx/sites-available/'+name, 'w')
-		f.write(
-			'# GENESIS '+stype+' http://'+addr+':'+port+'\n'
-			'server {\n'
-			'   listen '+port+';\n'
-			'   server_name '+addr+';\n'
-			'   root '+path+';\n'
-			'   index index.'+('php' if php else 'html')+';\n'
-			+(add if add is not '' else '')+'\n'
-			'}\n'
-			)
-		f.close()
+	def nginx_add(self, site, add):
+		if site.path == '':
+			site.path = os.path.join('/srv/http/webapps/', site.name)
+		c = nginx.Conf()
+		c.add(nginx.Comment('GENESIS %s %s' % (site.stype, 'http://'+site.addr+':'+site.port)))
+		s = nginx.Server(
+			nginx.Key('listen', site.port),
+			nginx.Key('server_name', site.addr),
+			nginx.Key('root', site.path),
+			nginx.Key('index', 'index.'+('php' if site.php else 'html'))
+		)
+		if add:
+			s.add(*[x for x in add])
+		c.add(s)
+		nginx.dumpf(c, os.path.join('/etc/nginx/sites-available', site.name))
 
-	def nginx_edit(self, origname, name, stype, path, addr, port, ssl, php=False):
-		# TODO update this to use nginxparser
-		if path.endswith('_site'):
-			path = re.sub('/', '\/', os.path.join('/srv/http/webapps/', name, '_site'))
-		else:
-			path = re.sub('/', '\/', os.path.join('/srv/http/webapps/', name))
-		shell('sed -i "s/.*GENESIS.*/# GENESIS %s %s/" /etc/nginx/sites-available/%s' 
-			% (stype, (('https:\/\/' if ssl else 'http:\/\/')+addr+':'+port), origname))	
-		shell('sed -i "s/.*listen .*/\tlisten %s\;/" /etc/nginx/sites-available/%s' % ((port+' ssl' if ssl else port), origname))
-		shell('sed -i "s/.*server_name .*/\tserver_name %s\;/" /etc/nginx/sites-available/%s' % (addr, origname))
-		shell('sed -i "s/.*root .*/\troot %s\;/" /etc/nginx/sites-available/%s' % (path, origname))
-		shell('sed -i "s/.*index index.*/\tindex index.%s\;/" /etc/nginx/sites-available/%s' % ('php' if php else 'html', origname))
-		if name != origname:
-			if os.path.exists(os.path.join('/srv/http/webapps', name)):
-				shutil.rmtree(os.path.join('/srv/http/webapps', name))
-			shutil.move(os.path.join('/srv/http/webapps', origname), 
-				os.path.join('/srv/http/webapps', name))
-			shutil.move(os.path.join('/etc/nginx/sites-available', origname),
-				os.path.join('/etc/nginx/sites-available', name))
-			self.nginx_disable(origname, reload=False)
-			self.nginx_enable(name)
+	def nginx_edit(self, oldsite, site):
+		# Update the nginx serverblock
+		c = nginx.loadf(os.path.join('/etc/nginx/sites-available', oldsite.name))
+		c.filter('Comment')[0].comment = 'GENESIS %s %s' % (site.stype, (('https://' if site.ssl else 'http://')+site.addr+':'+site.port))
+		s = c.servers[0]
+		if oldsite.ssl and oldsite.port == '443':
+			for x in c.servers:
+				if x.filter('Key', 'listen')[0].value == '443 ssl':
+					s = x
+			if site.port != '443':
+				for x in c.servers:
+					if not 'ssl' in x.filter('Key', 'listen')[0].value \
+					and x.filter('key', 'return'):
+						c.remove(x)
+		elif site.port == '443':
+			c.add(nginx.Server(
+				nginx.Key('listen', '80'),
+				nginx.Key('server_name', site.addr),
+				nginx.Key('return', '301 https://%s$request_uri'%site.addr)
+			))
+		s.filter('Key', 'listen')[0].value = site.port+' ssl' if site.ssl else site.port
+		s.filter('Key', 'server_name')[0].value = site.addr
+		s.filter('Key', 'root')[0].value = site.path
+		s.filter('Key', 'index')[0].value = 'index.php' if site.php else 'index.html'
+		nginx.dumpf(c, os.path.join('/etc/nginx/sites-available', oldsite.name))
+		# If the name was changed, rename the folder and files
+		if site.name != oldsite.name:
+			if os.path.exists(os.path.join('/srv/http/webapps', site.name)):
+				shutil.rmtree(os.path.join('/srv/http/webapps', site.name))
+			shutil.move(os.path.join('/srv/http/webapps', oldsite.name), 
+				os.path.join('/srv/http/webapps', site.name))
+			shutil.move(os.path.join('/etc/nginx/sites-available', oldsite.name),
+				os.path.join('/etc/nginx/sites-available', site.name))
+			self.nginx_disable(oldsite, reload=False)
+			self.nginx_enable(site)
 		self.nginx_reload()
 
-	def nginx_remove(self, sitename, reload=True):
+	def nginx_remove(self, site, reload=True):
 		try:
-			self.nginx_disable(sitename, reload)
+			self.nginx_disable(site, reload)
 		except:
 			pass
-		os.unlink(os.path.join('/etc/nginx/sites-available', sitename))
+		os.unlink(os.path.join('/etc/nginx/sites-available', site.name))
 
-	def nginx_enable(self, sitename, reload=True):
-		origin = os.path.join('/etc/nginx/sites-available', sitename)
-		target = os.path.join('/etc/nginx/sites-enabled', sitename)
+	def nginx_enable(self, site, reload=True):
+		origin = os.path.join('/etc/nginx/sites-available', site.name)
+		target = os.path.join('/etc/nginx/sites-enabled', site.name)
 		if not os.path.exists(target):
 			os.symlink(origin, target)
 		if reload == True:
 			self.nginx_reload()
 
-	def nginx_disable(self, sitename, reload=True):
-		os.unlink(os.path.join('/etc/nginx/sites-enabled', sitename))
+	def nginx_disable(self, site, reload=True):
+		os.unlink(os.path.join('/etc/nginx/sites-enabled', site.name))
 		if reload == True:
 			self.nginx_reload()
 
@@ -206,170 +274,94 @@ class WebappControl(Plugin):
 	def php_reload(self):
 		status = shell_cs('systemctl restart php-fpm')
 		if status[0] >= 1:
-			raise Exception('nginx failed to reload.')
+			raise Exception('PHP FastCGI failed to reload.')
 
 	def ssl_enable(self, data, cpath, kpath):
-		name, stype = data['name'], data['type']
-		n = nginxparser.loads(
-			open('/etc/nginx/sites-available/'+name, 'r').read())
+		# If no cipher preferences set, use the default ones
+		# As per Mozilla recommendations, but substituting 3DES for RC4
+		from genesis.plugins.certificates.backend import CertControl
+		ciphers = ':'.join([
+			'ECDHE-RSA-AES128-GCM-SHA256', 'ECDHE-ECDSA-AES128-GCM-SHA256',
+			'ECDHE-RSA-AES256-GCM-SHA384', 'ECDHE-ECDSA-AES256-GCM-SHA384',
+			'kEDH+AESGCM', 'ECDHE-RSA-AES128-SHA256', 
+			'ECDHE-ECDSA-AES128-SHA256', 'ECDHE-RSA-AES128-SHA', 
+			'ECDHE-ECDSA-AES128-SHA', 'ECDHE-RSA-AES256-SHA384',
+			'ECDHE-ECDSA-AES256-SHA384', 'ECDHE-RSA-AES256-SHA', 
+			'ECDHE-ECDSA-AES256-SHA', 'DHE-RSA-AES128-SHA256',
+			'DHE-RSA-AES128-SHA', 'DHE-RSA-AES256-SHA256', 
+			'DHE-DSS-AES256-SHA', 'AES128-GCM-SHA256', 'AES256-GCM-SHA384',
+			'ECDHE-RSA-DES-CBC3-SHA', 'ECDHE-ECDSA-DES-CBC3-SHA',
+			'EDH-RSA-DES-CBC3-SHA', 'EDH-DSS-DES-CBC3-SHA', 
+			'DES-CBC3-SHA', 'HIGH', '!aNULL', '!eNULL', '!EXPORT', '!DES',
+			'!RC4', '!MD5', '!PSK'
+			])
+		cfg = self.app.get_config(CertControl(self.app))
+		if hasattr(cfg, 'ciphers') and cfg.ciphers:
+			ciphers = cfg.ciphers
+		elif hasattr(cfg, 'ciphers'):
+			cfg.ciphers = ciphers
+			cfg.save()
+
+		name, stype = data.name, data.stype
 		port = '443'
-		for l in n:
-			if l[0] == ['server']:
-				for x in l[1]:
-					if x[0] == 'listen':
-						if x[1] == '80':
-							x[1] = '443 ssl'
-							port = '443'
-						else:
-							port = x[1]
-							x[1] = x[1] + ' ssl'
-				l[1].append(['ssl_certificate', cpath])
-				l[1].append(['ssl_certificate_key', kpath])
-				l[1].append(['ssl_protocols', 'TLSv1 TLSv1.1 TLSv1.2'])
-				l[1].append(['ssl_ciphers', 'HIGH:!aNULL:!MD5'])
-		comline = '# GENESIS '+stype+' https://'+data['addr']+':'+port+'\n'
-		open('/etc/nginx/sites-available/'+name, 'w').write(
-			comline+nginxparser.dumps(n))
+		c = nginx.loadf('/etc/nginx/sites-available/'+name)
+		s = c.servers[0]
+		l = s.filter('Key', 'listen')[0]
+		if l.value == '80':
+			l.value = '443 ssl'
+			port = '443'
+			c.add(nginx.Server(
+				nginx.Key('listen', '80'),
+				nginx.Key('server_name', data.addr),
+				nginx.Key('return', '301 https://%s$request_uri'%data.addr)
+			))
+			for x in c.servers:
+				if x.filter('Key', 'listen')[0].value == '443 ssl':
+					s = x
+					break
+		else:
+			port = l.value.split(' ssl')[0]
+			l.value = l.value.split(' ssl')[0] + ' ssl'
+		for x in s.all():
+			if type(x) == nginx.Key and x.name.startswith('ssl_'):
+				s.remove(x)
+		s.add(
+			nginx.Key('ssl_certificate', cpath),
+			nginx.Key('ssl_certificate_key', kpath),
+			nginx.Key('ssl_protocols', 'SSLv3 TLSv1 TLSv1.1 TLSv1.2'),
+			nginx.Key('ssl_ciphers', ciphers),
+			nginx.Key('ssl_session_timeout', '5m'),
+			nginx.Key('ssl_prefer_server_ciphers', 'on'),
+			nginx.Key('ssl_session_cache', 'shared:SSL:50m'),
+			)
+		c.filter('Comment')[0].comment = 'GENESIS %s https://%s:%s' \
+			% (stype, data.addr, port)
+		nginx.dumpf(c, '/etc/nginx/sites-available/'+name)
 		apis.webapps(self.app).get_interface(stype).ssl_enable(
 			os.path.join('/srv/http/webapps', name), cpath, kpath)
-		self.nginx_reload()
 
 	def ssl_disable(self, data):
-		name, stype = data['name'], data['type']
-		n = nginxparser.loads(
-			open('/etc/nginx/sites-available/'+name, 'r').read())
+		name, stype = data.name, data.stype
 		port = '80'
-		# Three passes - list loop bug omits entries on some systems 
-		for l in n:
-			if l[0] == ['server']:
-				for x in l[1]:
-					if x[0] == 'listen':
-						if x[1] == '443 ssl':
-							x[1] = '80'
-							port = '80'
-							print True
-						else:
-							x[1] = x[1].rstrip(' ssl')
-							print x[1]
-							port = x[1]
-					elif x[0] == 'ssl_certificate':
-						l[1].remove(x)
-					elif x[0] == 'ssl_certificate_key':
-						l[1].remove(x)
-					elif x[0] == 'ssl_protocols':
-						l[1].remove(x)
-					elif x[0] == 'ssl_ciphers':
-						l[1].remove(x)
-		for l in n:
-			if l[0] == ['server']:
-				for x in l[1]:
-					if x[0] == 'ssl_certificate':
-						l[1].remove(x)
-					elif x[0] == 'ssl_certificate_key':
-						l[1].remove(x)
-					elif x[0] == 'ssl_protocols':
-						l[1].remove(x)
-					elif x[0] == 'ssl_ciphers':
-						l[1].remove(x)
-		for l in n:
-			if l[0] == ['server']:
-				for x in l[1]:
-					if x[0] == 'ssl_certificate':
-						l[1].remove(x)
-					elif x[0] == 'ssl_certificate_key':
-						l[1].remove(x)
-					elif x[0] == 'ssl_protocols':
-						l[1].remove(x)
-					elif x[0] == 'ssl_ciphers':
-						l[1].remove(x)
-		comline = '# GENESIS '+stype+' http://'+data['addr']+':'+port+'\n'
-		open('/etc/nginx/sites-available/'+name, 'w').write(
-			comline+nginxparser.dumps(n))
+		s = None
+		c = nginx.loadf('/etc/nginx/sites-available/'+name)
+		if len(c.servers) > 1:
+			for x in c.servers:
+				if not 'ssl' in x.filter('Key', 'listen')[0].value \
+				and x.filter('key', 'return'):
+					c.remove(x)
+					break
+		s = c.servers[0]
+		l = s.filter('Key', 'listen')[0]
+		if l.value == '443 ssl':
+			l.value = '80'
+			port = '80'
+		else:
+			l.value = l.value.rstrip(' ssl')
+			port = l.value
+		s.remove(*[x for x in s.filter('Key') if x.name.startswith('ssl_')])
+		c.filter('Comment')[0].comment = 'GENESIS %s http://%s:%s' \
+			% (stype, data.addr, port)
+		nginx.dumpf(c, '/etc/nginx/sites-available/'+name)
 		apis.webapps(self.app).get_interface(stype).ssl_disable(
 			os.path.join('/srv/http/webapps', name))
-		self.nginx_reload()
-
-class Website(Plugin):
-	implements(apis.webapps.IWebapp)
-	name = 'Website'
-	dpath = None
-	icon = 'gen-earth'
-	sort = 'bottom'
-	php = False
-	nomulti = False
-	ssl = True
-
-	addtoblock = ''
-
-	phpblock = (
-		'	location ~ \.php$ {\n'
-		'		fastcgi_pass unix:/run/php-fpm/php-fpm.sock;\n'
-		'		fastcgi_index index.php;\n'
-		'		include fastcgi.conf;\n'
-		'	}\n'
-		)
-
-	def pre_install(self, name, vars):
-		if vars.getvalue('ws-dbsel', 'None') == 'None':
-			if vars.getvalue('ws-dbname', '') != '':
-				raise Exception('Must choose a database type if you want to create one')
-			if vars.getvalue('ws-dbpass', '') != '':
-				raise Exception('Must choose a database type if you want to create one')
-		if vars.getvalue('ws-dbsel', 'None') != 'None':
-			if vars.getvalue('ws-dbname', '') == '':
-				raise Exception('Must choose a database name if you want to create one')
-			if vars.getvalue('ws-dbpass', '') == '':
-				raise Exception('Must choose a database password if you want to create one')
-
-	def post_install(self, name, path, vars):
-		# Create a database if the user wants one
-		if vars.getvalue('ws-dbsel', 'None') != 'None':
-			dbtype = vars.getvalue('ws-dbsel', '')
-			dbname = vars.getvalue('ws-dbname', '')
-			passwd = vars.getvalue('ws-dbpass', '')
-			dbase = apis.databases(self.app).get_interface(dbtype)
-			dbase.add(dbname)
-			dbase.usermod(dbname, 'add', passwd)
-			dbase.chperm(dbname, dbname, 'grant')
-
-		# Write a basic index file showing that we are here
-		if vars.getvalue('php', '0') == '1':
-			php = True
-		else:
-			php = False
-		f = open(os.path.join(path, 'index.'+('php' if php is True else 'html')), 'w')
-		f.write(
-			'<html>\n'
-			'<body>\n'
-			'<h1>Genesis - Custom Site</h1>\n'
-			'<p>Your site is online and available at '+path+'</p>\n'
-			'<p>Feel free to paste your site files here</p>\n'
-			'</body>\n'
-			'</html>\n'
-			)
-		f.close()
-
-		# Give access to httpd
-		shell('chown -R http:http '+path)
-
-	def pre_remove(self, name, path):
-		pass
-
-	def post_remove(self, name):
-		pass
-
-	def ssl_enable(self, path, cfile, kfile):
-		pass
-
-	def ssl_disable(self, path):
-		pass
-
-	def get_info(self):
-		return {
-			'name': 'Website',
-			'short': 'Upload your own HTML/PHP files',
-			'long': ('Create a custom website with your own HTML or PHP '
-					'files.'),
-			'site': None,
-			'logo': False
-		}

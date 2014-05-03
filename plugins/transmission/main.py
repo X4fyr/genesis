@@ -8,14 +8,13 @@ class TransmissionPlugin(apis.services.ServiceControlPlugin):
     text = 'Transmission'
     iconfont = 'gen-download'
     folder = 'apps'
-    services = [('Transmission Client', 'transmission', [('tcp', '9091')])]
 
     def on_session_start(self):
         self._redir = False
         self._tab = 0
         self._config = backend.TransmissionConfig(self.app)
         self._config.load()
-        self.services = [('Transmission Client', 'transmission', [('tcp', self._config.get('rpc-port'))])]
+        self.plugin_info.services[0]['ports'] = [('tcp', self._config.get('rpc-port'))]
         self.update_services()
 
     def get_main_ui(self):
@@ -38,6 +37,10 @@ class TransmissionPlugin(apis.services.ServiceControlPlugin):
                 UI.Formline(
                     UI.Checkbox( name='rpc-whitelist-enabled', checked=self._config.get('rpc-whitelist-enabled')),
                     text='RPC Whitelist Enabled',
+                ),
+                UI.Formline(
+                    UI.TextInput(name='rpc-whitelist', value=self._config.get('rpc-whitelist')),
+                    text='RPC IP Whitelist',
                 ),
                 id="frmBasic"
             )
@@ -63,12 +66,13 @@ class TransmissionPlugin(apis.services.ServiceControlPlugin):
     def on_submit(self, event, params, vars=None):
         if params[0] == 'frmBasic':
             if vars.getvalue('action', '') == 'OK':
-                self.services = [('Transmission Client', 'transmission', [('tcp', vars.getvalue('rpc-port'))])]
+                self.plugin_info.services[0]['ports'] = [('tcp', vars.getvalue('rpc-port'))]
                 if int(self._config.get('rpc-port')) != int(vars.getvalue('rpc-port')):
                     self.update_services()
                 self._config.set('rpc-port', int(vars.getvalue('rpc-port', '')))
                 self._config.set('rpc-whitelist-enabled', vars.getvalue('rpc-whitelist-enabled', '')=='1')
                 self._config.set('download-dir', vars.getvalue('download-dir', ''))
+                self._config.set('rpc-whitelist', vars.getvalue('rpc-whitelist', ''))
                 self._config.save()
             elif vars.getvalue('action', '') == 'Cancel':
                 self._config.load()

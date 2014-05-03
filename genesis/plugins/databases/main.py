@@ -2,6 +2,8 @@ from genesis.api import *
 from genesis.ui import *
 from genesis import apis
 
+from utils import *
+
 
 class DatabasesPlugin(apis.services.ServiceControlPlugin):
 	text = 'Databases'
@@ -22,10 +24,16 @@ class DatabasesPlugin(apis.services.ServiceControlPlugin):
 			if dbtype[1] == '':
 				ok = False
 			for svc in self.services:
-				if svc[1] == dbtype[1]:
+				if svc['binary'] == dbtype[1]:
 					ok = False
-			if ok == True:	
-				self.services.append((dbtype[0], dbtype[1]))
+			if ok == True:
+				self.services.append(
+					{
+						"name": dbtype[0], 
+						"binary": dbtype[1],
+						"ports": []
+					}
+				)
 
 	def on_session_start(self):
 		self._tab = 0
@@ -33,15 +41,19 @@ class DatabasesPlugin(apis.services.ServiceControlPlugin):
 		self._useradd = None
 		self._chmod = None
 		self._exec = None
+		self._execmsg = ''
 		self._import = None
 		self._input = None
 		self._output = None
+		self._rootpwds = {}
+		self._cancelauth = []
 
 	def get_main_ui(self):
 		ui = self.app.inflate('databases:main')
 		ui.find('tabs').set('active', self._tab)
 		t = ui.find('list')
 		ut = ui.find('usrlist')
+		st = ui.find('settings')
 		tlbr = ui.find('toolbar')
 
 		ubutton = False
@@ -50,18 +62,29 @@ class DatabasesPlugin(apis.services.ServiceControlPlugin):
 				self.put_message('err', 'The %s database process is not '
 					'running. Your databases/users for this type will not '
 					'appear until you start the process.' % dbtype[0])
+				self.dbtypes.remove(dbtype)
 			else:
-				if self.dbops.get_interface(dbtype[0]).multiuser == True:
+				if self.dbops.get_info(dbtype[0]).requires_conn == True and \
+				not self.dbops.get_interface(dbtype[0]).checkpwstat():
+					self._rootpwds[dbtype[0]] = False
+					self.put_message('err', '%s does not have a root password set. '
+						'Please add this via the Settings tab.' % dbtype[0])
 					ubutton = True
-			
-		if ubutton == True:
-			tlbr.append(
-				UI.Button(
-					id="adduser",
-					text="Add user",
-					iconfont="gen-user-plus"
+				elif not dbtype[0] in self._cancelauth and \
+				self.dbops.get_info(dbtype[0]).requires_conn == True and \
+				not self.dbops.get_dbconn(dbtype[0]):
+					ui.append('main', 
+						UI.InputBox(id='dlgAuth%s' % dbtype[0], 
+							text='Enter the database password for %s' 
+							% dbtype[0],
+							password=True)
 					)
-				)
+					self._rootpwds[dbtype[0]] = True
+				elif self.dbops.get_info(dbtype[0]).multiuser == True:
+					self._rootpwds[dbtype[0]] = True
+					ubutton = True
+				else:
+					self._rootpwds[dbtype[0]] = True
 
 		for d in self.dbs:
 			t.append(UI.DTR(
@@ -103,15 +126,41 @@ class DatabasesPlugin(apis.services.ServiceControlPlugin):
 					),
 				))
 
-		if self._add is not None:
-			type_sel = [UI.SelectOption(text = x[0], value = x[0])
-                    for x in self.dbtypes]
-			ui.appendAll('type', *type_sel)
+		for dbtype in self.dbtypes:
+			if self.dbops.get_info(dbtype[0]).multiuser:
+				st.append(UI.Label(text=dbtype[0], size='5'))
+			if self.dbops.get_info(dbtype[0]).multiuser and dbtype[0] in self._cancelauth:
+				st.append(UI.Label(text='You must authenticate before changing these settings.'))
+			elif self.dbops.get_info(dbtype[0]).multiuser:
+				st.append(UI.SimpleForm(
+					UI.Formline(UI.EditPassword(id='newpasswd', value='Click to change'),
+						text="New root password"
+					),
+					UI.Formline(UI.Button(onclick="form", form="frmPasswd%s" % dbtype[0],
+						design="primary", action="OK", text="Change Password")),
+					id="frmPasswd%s" % dbtype[0]
+				))
+			if self.dbops.get_info(dbtype[0]).requires_conn:
+				st.append(UI.Formline(UI.Button(text='Reauthenticate', id='reauth/'+dbtype[0])))
+
+		type_sel_all = [UI.SelectOption(text = x[0], value = x[0])
+			for x in self.dbtypes if x[0] not in self._cancelauth]
+		type_sel_multiuser = [UI.SelectOption(text = x[0], value = x[0])
+			for x in self.dbtypes if x[0] not in self._cancelauth and \
+			self.dbops.get_info(x[0]).multiuser]
+		if not type_sel_multiuser:
+			ubutton = False
+
+		if self._add is not None and type_sel_all:
+			ui.appendAll('type', *type_sel_all)
 		else:
 			ui.remove('dlgAdd')
 
 		if self._exec is not None:
 			edlg = self.app.inflate('databases:execute')
+			if self._execmsg:
+				edlg.insertText('execmsg', self._execmsg)
+				self._execmsg = ''
 			if self._input is not None:
 				elem = edlg.find('input')
 				elem.set('value', self._input)
@@ -121,11 +170,7 @@ class DatabasesPlugin(apis.services.ServiceControlPlugin):
 			ui.append('main', edlg)
 
 		if self._useradd is not None:
-			type_sel = []
-			for x in self.dbtypes:
-				if self.dbops.get_interface(x[0]).multiuser == True:
-					type_sel.append(UI.SelectOption(text=x[0], value=x[0]))
-			ui.appendAll('usertype', *type_sel)
+			ui.appendAll('usertype', *type_sel_multiuser)
 		else:
 			ui.remove('dlgAddUser')
 
@@ -138,6 +183,15 @@ class DatabasesPlugin(apis.services.ServiceControlPlugin):
 			ui.appendAll('dblist', *dblist)
 		else:
 			ui.remove('dlgChmod')
+
+		if ubutton == True:
+			tlbr.append(
+				UI.Button(
+					id="adduser",
+					text="Add user",
+					iconfont="gen-user-plus"
+					)
+				)
 
 		return ui
 
@@ -167,7 +221,11 @@ class DatabasesPlugin(apis.services.ServiceControlPlugin):
 			self._tab = 0
 			try:
 				dt = self.dbs[int(params[1])]
-				self.dbops.get_interface(dt['type']).remove(dt['name'])
+				cls = self.dbops.get_interface(dt['type'])
+				if cls.plugin_info.requires_conn:
+					cls.remove(dt['name'], self.app.session['dbconns'][dt['type']])
+				else:
+					cls.remove(dt['name'])
 			except Exception, e:
 				self.put_message('err', 'Database drop failed: ' + str(e))
 				self.app.log.error('Database drop failed: ' + str(e))
@@ -184,7 +242,12 @@ class DatabasesPlugin(apis.services.ServiceControlPlugin):
 				self.app.log.error('User drop failed: ' + str(e))
 			else:
 				self.put_message('info', 'User deleted') 
+		if params[0] == 'reauth':
+			if params[1] in self._cancelauth:
+				self._cancelauth.remove(params[1])
+			self.dbops.clear_dbconn(params[1])
 
+	@event('form/submit')
 	@event('dialog/submit')
 	def on_submit(self, event, params, vars = None):
 		if params[0] == 'dlgAdd':
@@ -193,10 +256,15 @@ class DatabasesPlugin(apis.services.ServiceControlPlugin):
 				dbtype = vars.getvalue('type', '')
 				if not name or not dbtype:
 					self.put_message('err', 'Name or type not selected')
+				elif self._rootpwds[dbtype] == False:
+					self.put_message('err', 'Please add a root password for this database type via the Settings tab first.')
 				else:
 					cls = self.dbops.get_interface(dbtype)
 					try:
-						cls.add(name)
+						if cls.plugin_info.requires_conn:
+							cls.add(name, self.app.session['dbconns'][dbtype])
+						else:
+							cls.add(name)
 					except Exception, e:
 						self.put_message('err', 'Database add failed: ' 
 							+ str(e))
@@ -206,20 +274,25 @@ class DatabasesPlugin(apis.services.ServiceControlPlugin):
 						self.put_message('info', 
 							'Database %s added sucessfully' % name)
 			self._add = None
-		if params[0] == 'dlgExec':
+		elif params[0] == 'dlgExec':
 			if vars.getvalue('action', '') == 'OK':
 				self._input = vars.getvalue('input', '')
 				iface = self.dbops.get_interface(self._exec['type'])
-				self._output = iface.execute(self._exec['name'], self._input)
+				try:
+					self._output = iface.execute(self._exec['name'], self._input)
+				except Exception, e:
+					self._execmsg = str(e[1])
 			else:
 				self._exec = None
-		if params[0] == 'dlgAddUser':
+		elif params[0] == 'dlgAddUser':
 			if vars.getvalue('action', '') == 'OK':
 				username = vars.getvalue('username')
 				passwd = vars.getvalue('passwd')
 				usertype = vars.getvalue('usertype', '')
 				if not username or not usertype:
 					self.put_message('err', 'Name or type not selected')
+				elif self._rootpwds[usertype] == False:
+					self.put_message('err', 'Please add a root password for this database type via the Settings tab first.')
 				else:
 					try:
 						iface = self.dbops.get_interface(usertype)
@@ -233,7 +306,7 @@ class DatabasesPlugin(apis.services.ServiceControlPlugin):
 						self.put_message('info',
 							'User %s added successfully' % username)
 			self._useradd = None
-		if params[0] == 'dlgChmod':
+		elif params[0] == 'dlgChmod':
 			if vars.getvalue('action', '') == 'OK':
 				action = vars.getvalue('chperm', '')
 				dbname = vars.getvalue('dblist', '')
@@ -248,3 +321,39 @@ class DatabasesPlugin(apis.services.ServiceControlPlugin):
 					self.put_message('info',
 						'Permissions for %s changed successfully' % self._chmod['name'])
 			self._chmod = None
+		elif params[0].startswith('dlgAuth'):
+			dbtype = params[0].split('dlgAuth')[1]
+			if vars.getvalue('action', '') == 'OK':
+				login = vars.getvalue('value', '')
+				try:
+					self.dbops.get_interface(dbtype).connect(
+						store=self.app.session['dbconns'],
+						passwd=login)
+				except DBAuthFail, e:
+					self.put_message('err', str(e))
+			else:
+				self.put_message('err', 'You refused to authenticate to %s. '
+					'You will not be able to perform operations with this database type. '
+					'Go to Settings and click Reauthenticate to retry.' % dbtype)
+				self._cancelauth.append(dbtype)
+		elif params[0].startswith('frmPasswd'):
+			dbtype = params[0].split('frmPasswd')[1]
+			v = vars.getvalue('newpasswd')
+			if v != vars.getvalue('newpasswdb',''):
+				self.put_message('err', 'Passwords must match')
+			else:
+				try:
+					if not self.app.session.has_key('dbconns'):
+						self.app.session['dbconns'] = {}
+					if not self.dbops.get_interface(dbtype).checkpwstat():
+						self.dbops.get_interface(dbtype).connect(
+							store=self.app.session['dbconns'],
+							passwd='')
+					self.dbops.get_interface(dbtype).chpwstat(
+						vars.getvalue('newpasswd'),
+						self.app.session['dbconns'][dbtype]
+						)
+					self.put_message('info', 'Password for %s changed successfully' % dbtype)
+				except Exception, e:
+					self.put_message('err', 'Error changing password for %s: %s' % (dbtype, str(e)))
+			self._tab = 2

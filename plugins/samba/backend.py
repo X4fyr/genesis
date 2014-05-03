@@ -1,4 +1,5 @@
 import os
+import shutil
 
 from genesis.api import *
 from genesis.com import *
@@ -17,20 +18,16 @@ class SambaConfig(Plugin):
     general_defaults = {
         'server string': '',
         'workgroup': 'WORKGROUP',
-        'interfaces': '',
-        'socket options': 'TCP_NODELAY',
-        'password server': '',
-        'security': 'user'
+        'interfaces': ''
     }
 
     defaults = {
-        'available': 'yes',
         'browseable': 'yes',
         'valid users': '',
-        'path': '/dev/null',
+        'path': '',
         'read only': 'yes',
         'guest ok': 'yes',
-        'guest only': 'no'
+        'only guest': 'no'
     }
 
     editable = {
@@ -49,6 +46,8 @@ class SambaConfig(Plugin):
 
     def __init__(self):
         self.cfg_file = self.app.get_config(self).cfg_file
+        if not os.path.exists(self.cfg_file):
+            shutil.copyfile('/etc/samba/smb.conf.default', self.cfg_file)
 
     def list_files(self):
         return [self.cfg_file]
@@ -68,7 +67,10 @@ class SambaConfig(Plugin):
                 if s[0] != '#' and s[0] != ';':
                     if s[0] == '[':
                         cs = s[1:-1]
-                        self.shares[cs] = self.new_share() if cs != 'global' else self.general_defaults.copy()
+                        if cs == 'homes' or cs == 'printers':
+                            continue
+                        else:
+                            self.shares[cs] = self.new_share() if cs != 'global' else self.general_defaults.copy()
                     else:
                         s = s.split('=')
                         self.shares[cs][s[0].strip()] = s[1].strip()
@@ -114,11 +116,8 @@ class SambaConfig(Plugin):
     def del_user(self, u):
         shell('pdbedit -x -u ' + u)
 
-    def add_user(self, u):
-        with open('/tmp/pdbeditnn', 'w') as f:
-            f.write('\n\n\n')
-        shell('pdbedit -a -t -u ' + u + ' < /tmp/pdbeditnn')
-        os.unlink('/tmp/pdbeditnn')
+    def add_user(self, u, p):
+        shell_stdin('smbpasswd -as %s' % u, p+'\n'+p+'\n')
 
     def get_shares(self):
         return self.shares.keys()

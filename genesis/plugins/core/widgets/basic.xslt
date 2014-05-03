@@ -1,5 +1,5 @@
 <xsl:template match="label">
-    <span class="ui-el-label-{x:attr(@size, '1')} {@class}" style="{x:iif(@bold, 'font-weight: bold;', '')} {x:iif(@monospace, 'font-family: monospace;', '')}">
+    <span class="ui-el-label-{x:attr(@size, '1')} {@class}" style="{x:iif(@bold, 'font-weight: bold;', '')} {x:iif(@monospace, 'font-family: monospace;', '')} {x:iif(@lbreak, 'max-width: 500px;', '')}">
         <xsl:value-of select="@text" />
     </span>
 </xsl:template>
@@ -17,6 +17,12 @@
 </xsl:template>
 
 <!-- Button magic -->
+<xsl:template match="buttongroup">
+    <div class="btn-group">
+        <xsl:apply-templates />
+    </div>
+</xsl:template>
+
 <xsl:template match="button">
     <xsl:variable name="onclickjs">
         <xsl:choose>
@@ -27,8 +33,14 @@
             </xsl:when>
 
             <xsl:when test="@onclick = 'form'">
-                return Genesis.submit('<xsl:value-of select="@form" />',
-                    '<xsl:value-of select="@action" />');
+                <xsl:choose>
+                    <xsl:when test="@mp != ''">
+                        return Genesis.submit('<xsl:value-of select="@form" />', '<xsl:value-of select="@action" />', true);
+                    </xsl:when>
+                    <xsl:otherwise>
+                        return Genesis.submit('<xsl:value-of select="@form" />', '<xsl:value-of select="@action" />');
+                    </xsl:otherwise>
+                </xsl:choose>
             </xsl:when>
 
             <xsl:when test="@onclick = '' or not (@onclick)">
@@ -141,7 +153,7 @@
 
 <xsl:template match="popover">
     <xsl:variable name="id" select="x:id(@id)" />
-    <a id="{$id}" style="display:inline-block; {@styles}" class="pop-trigger {@class}" onclick="Genesis.UI.prepPopover('{@id}');{@onclick}">
+    <a id="{$id}" style="display:inline-block; {@styles}" class="pop-trigger {@class}" onclick="Genesis.UI.prepPopover(event, '{@id}');{@onclick}">
         <xsl:apply-templates />
     </a>
     <script>

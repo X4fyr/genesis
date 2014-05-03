@@ -14,7 +14,24 @@ class SecurityPlugin(apis.services.ServiceControlPlugin):
     text = 'Security'
     iconfont = 'gen-lock-2'
     folder = 'system'
-    services = [('Intrusion Prevention', 'fail2ban')]
+    services = [{"name": 'Intrusion Prevention', "binary": 'fail2ban', "ports": []}]
+    f2b_name = 'Genesis'
+    f2b_icon = 'gen-arkos-round'
+    f2b = [{
+        'custom': True,
+        'name': 'genesis',
+        'jail_opts': [
+            ('enabled', 'true'),
+            ('filter', 'genesis'),
+            ('logpath', '/var/log/genesis.log'),
+            ('action', 'iptables[name=genesis, port=8000, protocol=tcp]')
+        ],
+        'filter_name': 'genesis',
+        'filter_opts': [
+            ('_daemon', 'genesis-panel'),
+            ('failregex', '.*[ERROR] auth: Login failed for user .* from <HOST>$')
+        ]
+    }]
 
     defactions = ['ACCEPT', 'DROP', 'REJECT', 'LOG', 'EXIT', 'MASQUERADE']
 
@@ -77,7 +94,11 @@ class SecurityPlugin(apis.services.ServiceControlPlugin):
             r = self.net_config.get_ip(i.name)
             if '127.0.0.1' in r or '0.0.0.0' in r:
                 continue
-            ri, rr = r.split('/')
+            if not '/' in r:
+                ri = r
+                rr = '32'
+            else:
+                ri, rr = r.split('/')
             ri = ri.split('.')
             ri[3] = '0'
             ri = ".".join(ri)

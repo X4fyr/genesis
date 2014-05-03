@@ -10,7 +10,7 @@ class PluginManager(CategoryPlugin, URLHandler):
     folder = None
 
     def on_session_start(self):
-        self._mgr = RepositoryManager(self.app.config)
+        self._mgr = RepositoryManager(self.app.log, self.app.config)
         self._nc = apis.networkcontrol(self.app)
         self._reloadfw = False
 
@@ -47,7 +47,7 @@ class PluginManager(CategoryPlugin, URLHandler):
 
             if k.problem:
                 row.find('status').set('iconfont', 'gen-close-2 text-error')
-                row.find('status').set('text', 'Error')
+                row.find('status').set('text', k.problem)
                 row.find('icon').set('class', k.iconfont + ' text-error')
                 row.find('name').set('class', 'text-error')
                 row.find('desc').set('class', 'text-error')
@@ -118,8 +118,13 @@ class PluginManager(CategoryPlugin, URLHandler):
     @event('button/click')
     def on_click(self, event, params, vars=None):
         if params[0] == 'update':
-            self._mgr.update_list()
-            self.put_message('info', 'Plugin list updated')
+            try:
+                self._mgr.update_list(crit=True)
+            except Exception, e:
+                self.put_message('err', str(e))
+                self.app.log.error(str(e))
+            else:
+                self.put_message('info', 'Plugin list updated')
         if params[0] == 'remove':
             try:
                 self._mgr.check_conflict(params[1], 'remove')
@@ -127,7 +132,7 @@ class PluginManager(CategoryPlugin, URLHandler):
                 lr.start()
                 self._nc.remove(params[1])
             except ImSorryDave, e:
-                self.put_message('err', e)
+                self.put_message('err', str(e))
         if params[0] == 'reload':
             try:
                 PluginLoader.unload(params[1])
@@ -146,5 +151,5 @@ class PluginManager(CategoryPlugin, URLHandler):
                 li = LiveInstall(self._mgr, params[1], 
                     True, self)
                 li.start()
-            except ImSorryDave, e:
-                self.put_message('err', e)
+            except Exception, e:
+                self.put_message('err', str(e))

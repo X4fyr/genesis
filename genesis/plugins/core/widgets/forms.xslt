@@ -4,7 +4,14 @@
             <xsl:apply-templates />
             <formline>
                 <xsl:if test="not(@hideok = 'True')">
-                    <button text="OK" onclick="form" action="OK" form="{@id}" design="primary" />
+                    <xsl:choose>
+                        <xsl:when test="@mp != ''">
+                            <button text="OK" onclick="form" action="OK" form="{@id}" design="primary" mp="True" />
+                        </xsl:when>
+                        <xsl:otherwise>
+                            <button text="OK" onclick="form" action="OK" form="{@id}" design="primary" />
+                        </xsl:otherwise>
+                    </xsl:choose>
                 </xsl:if>
                 <xsl:if test="not(@hidecancel = 'True')">
                     <button text="Cancel" onclick="form" action="Cancel" form="{@id}"/>
@@ -33,10 +40,38 @@
 
         <div class="modal-footer">
             <xsl:if test="not(@hideok = 'True')">
-                <button text="OK" onclick="form" action="OK" form="{@id}" design="primary" />
+                <xsl:choose>
+                    <xsl:when test="@mp != ''">
+                        <xsl:choose>
+                            <xsl:when test="@yesno != ''">
+                                <button text="Yes" onclick="form" action="OK" form="{@id}" design="primary" mp="True" />
+                            </xsl:when>
+                            <xsl:otherwise>
+                                <button text="OK" onclick="form" action="OK" form="{@id}" design="primary" mp="True" />
+                            </xsl:otherwise>
+                        </xsl:choose>
+                    </xsl:when>
+                    <xsl:otherwise>
+                        <xsl:choose>
+                            <xsl:when test="@yesno != ''">
+                                <button text="Yes" onclick="form" action="OK" form="{@id}" design="primary" />
+                            </xsl:when>
+                            <xsl:otherwise>
+                                <button text="OK" onclick="form" action="OK" form="{@id}" design="primary" />
+                            </xsl:otherwise>
+                        </xsl:choose>
+                    </xsl:otherwise>
+                </xsl:choose>
             </xsl:if>
             <xsl:if test="not(@hidecancel = 'True')">
-                <button text="Cancel" onclick="form" action="Cancel" form="{@id}"/>
+                <xsl:choose>
+                    <xsl:when test="@yesno != ''">
+                        <button text="No" onclick="form" action="Cancel" form="{@id}"/>
+                    </xsl:when>
+                    <xsl:otherwise>
+                        <button text="Cancel" onclick="form" action="Cancel" form="{@id}"/>
+                    </xsl:otherwise>
+                </xsl:choose>
             </xsl:if>
             <xsl:if test="@miscbtn">
                 <button text="{@miscbtn}" id="{@miscbtnid}"/>
@@ -49,6 +84,27 @@
 </div>
 </xsl:template>
 
+<xsl:template match="confirmbox">
+<div>
+    <div id="{@id}" class="modal fade">
+        <input id="{@id}-url" type="hidden" name="__url" value="/handle/dialog/submit/{@id}"/>
+        <div class="modal-body">
+            <label text="{@text}" />
+        </div>
+
+        <div class="modal-footer">
+            <xsl:if test="not(@hidecancel = 'True')">
+                <button text="Cancel" onclick="form" action="Cancel" form="{@id}"/>
+            </xsl:if>
+            <button text="No" onclick="form" action="Reject" form="{@id}" design="primary" />
+            <button text="Yes" onclick="form" action="Confirm" form="{@id}" design="primary" />
+        </div>
+    </div>
+    <script>
+        Genesis.UI.showAsModal('<xsl:value-of select="@id"/>');
+    </script>
+</div>
+</xsl:template>
 
 <xsl:template match="inputbox">
 <div>
@@ -92,24 +148,32 @@
 <xsl:template match="uploadbox">
 <div>
     <div id="{@id}" class="modal fade">
-        <form id="{@id}-form" action="{@url}" method="POST" enctype="multipart/form-data" style="margin-bottom: 0px;">
-            <input id="{@id}-url" type="hidden" name="__url" value="{@url}"/>
-            <div class="modal-body">
-                <input type="file" name="file"/>
-            </div>
+        <input id="{@id}-url" type="hidden" name="__url" value="/handle/dialog/submit/{@id}"/>
+        <div class="modal-header">
+            <h3><xsl:value-of select="@text" /></h3>
+        </div>
+        <div class="modal-body">
+            <xsl:if test="@location != ''">
+                <formline text="Uploading to">
+                    <label text="{@location}" />
+                </formline> 
+            </xsl:if>
+            <formline>
+                <fileinput id="file" multiple="{@multiple}" />
+            </formline>
+        </div>
 
-            <div class="modal-footer">
-                <xsl:if test="not(@hideok = 'True')">
-                    <input type="submit" class="ui-el-button btn primary" value="{x:attr(@text, 'Upload')}" style="padding: 5px 10px;" />
-                </xsl:if>
-                <xsl:if test="not(@hidecancel = 'True')">
-                    <button text="Cancel" onclick="form" action="Cancel" form="{@id}-form"/>
-                </xsl:if>
-                <xsl:if test="@miscbtn">
-                    <button text="{@miscbtn}" id="{@miscbtnid}"/>
-                </xsl:if>
-            </div>
-        </form>
+        <div class="modal-footer">
+            <xsl:if test="not(@hideok = 'True')">
+                <button text="Upload" onclick="form" action="OK" form="{@id}" design="primary" mp="True" />
+            </xsl:if>
+            <xsl:if test="not(@hidecancel = 'True')">
+                <button text="Cancel" onclick="form" action="Cancel" form="{@id}" />
+            </xsl:if>
+            <xsl:if test="@miscbtn">
+                <button text="{@miscbtn}" id="{@miscbtnid}"/>
+            </xsl:if>
+        </div>
     </div>
     <script>
         Genesis.UI.showAsModal('<xsl:value-of select="@id"/>');

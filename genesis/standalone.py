@@ -76,7 +76,7 @@ def make_log(debug=False, log_level=logging.INFO):
 
     log.blackbox = DebugHandler()
     log.blackbox.setLevel(logging.DEBUG)
-    dformatter = logging.Formatter('%(asctime)s %(levelname)-8s %(module)s.%(funcName)s(): %(message)s')
+    dformatter = logging.Formatter('%(asctime)s [%(levelname)s] %(module)s: %(message)s')
     log.blackbox.setFormatter(dformatter)
     stdout.setFormatter(dformatter)
     log.addHandler(log.blackbox)
@@ -112,17 +112,42 @@ def run_server(log_level=logging.INFO, config_file=''):
     # Start recording log for the bug reports
     log.blackbox.start()
 
+    arch = genesis.utils.detect_architecture()
+    log.info('Detected architecture/hardware: %s, %s'%(arch[0],arch[1]))
+
     platform = genesis.utils.detect_platform()
     log.info('Detected platform: %s'%platform)
 
     # Load external plugins
-    PluginLoader.initialize(log, config.get('genesis', 'plugins'), platform)
+    PluginLoader.initialize(log, config.get('genesis', 'plugins'), arch[0], platform)
     PluginLoader.load_plugins()
 
     # Start components
     app = Application(config)
     PluginLoader.register_mgr(app) # Register permanent app
     ComponentManager.create(app)
+
+    # Check system time
+    log.info('Verifying system time...')
+    os = 0
+    try:
+        st = genesis.utils.SystemTime()
+        os = st.get_offset()
+    except Exception, e:
+        log.error('System time could not be retrieved. Error: %s' % str(e))
+    if os < -3600 or os > 3600:
+        log.info('System time was off by %s secs - updating' % str(os))
+        try:
+            st.set_datetime()
+        except Exception, e:
+            log.error('System time could not be set. Error: %s' % str(e))
+
+    # Make sure correct kernel modules are enabled
+    genesis.utils.shell('modprobe ip_tables')
+    genesis.utils.shell('modprobe loop')
+    # Load and verify security rules
+    log.info('Starting security plugin...')
+    genesis.apis.networkcontrol(app).session_start()
 
     # Start server
     host = config.get('genesis','bind_host')
@@ -173,6 +198,7 @@ def run_server(log_level=logging.INFO, config_file=''):
                 pass
             fd -= 1
 
+        import os
         os.execv(sys.argv[0], sys.argv)
     else:
         log.info('Stopped by request')

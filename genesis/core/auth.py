@@ -1,6 +1,6 @@
 from hashlib import sha1
 from base64 import b64encode
-from passlib.hash import sha512_crypt
+from passlib.hash import sha512_crypt, bcrypt
 import syslog
 import time
 
@@ -8,14 +8,27 @@ from genesis.api import get_environment_vars
 
 
 def check_password(passw, hash):
+    """
+    Tests if a password is the same as the hash.
+
+    Instance vars:
+
+    - ``passw`` - ``str``, The password in it's original form
+    - ``hash`` - ``str``, The hashed version of the password to check against
+    """
     if hash.startswith('{SHA}'):
         try:
+            import warnings
+            warnings.warn(
+                'SHA1 as a password hash may be removed in a future release.')
             passw_hash = '{SHA}' + b64encode(sha1(passw).digest())
             if passw_hash == hash:
                 return True
         except:
             import traceback
             traceback.print_exc()
+    elif hash.startswith('$2a$') and len(hash) == 60:
+        return bcrypt.verify(passw, hash)
     elif sha512_crypt.identify(hash):
         return sha512_crypt.verify(passw, hash)
     return False
@@ -54,7 +67,10 @@ class AuthManager(object):
         """
         Deauthenticates current user.
         """
-        self.app.session['auth.user'] = None
+        if self.app.config.has_option('genesis', 'auth_enabled') \
+        and self.app.config.get('genesis', 'auth_enabled') == '1':
+            self.app.log.info('Session closed for user %s' % self.app.session['auth.user'])
+            self.app.session['auth.user'] = None
 
     def __call__(self, environ, start_response):
         session = environ['app.session']
@@ -77,7 +93,7 @@ class AuthManager(object):
                 pwd = self._config.get('users', user)
                 resp = vars.getvalue('response', '')
                 if check_password(resp, pwd):
-                    syslog.syslog('session opened for user %s from %s' % (user, environ['REMOTE_ADDR']))
+                    self.app.log.info('Session opened for user %s from %s' % (user, environ['REMOTE_ADDR']))
                     session['auth.user'] = user
                     start_response('200 OK', [
                         ('Content-type','text/plain'),
@@ -85,8 +101,8 @@ class AuthManager(object):
                     ])
                     return ''
 
-            syslog.syslog('login failed for user %s from %s' % (user, environ['REMOTE_ADDR']))
-            time.sleep(4)
+            self.app.log.error('Login failed for user %s from %s' % (user, environ['REMOTE_ADDR']))
+            time.sleep(2)
 
             start_response('403 Login Failed', [
                 ('Content-type','text/plain'),

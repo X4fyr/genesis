@@ -3,6 +3,8 @@ from genesis.ui import *
 from genesis.utils import hashpw
 from genesis.plugins.recovery.api import *
 from genesis.plugins.core.updater import UpdateCheck
+from genesis import apis
+from genesis.utils import shell_cs
 
 
 class ConfigPlugin(CategoryPlugin):
@@ -12,7 +14,6 @@ class ConfigPlugin(CategoryPlugin):
 
     def on_session_start(self):
         self._config = None
-        self._restart = False
         self._updstat = (False, '')
         self._update = None
 
@@ -22,9 +23,9 @@ class ConfigPlugin(CategoryPlugin):
         # General
         ui.find('bind_host').set('value', self.app.gconfig.get('genesis', 'bind_host', ''))
         ui.find('bind_port').set('value', self.app.gconfig.get('genesis', 'bind_port', ''))
-        ui.find('ssl').set('checked', self.app.gconfig.get('genesis', 'ssl', '')=='1')
-        ui.find('cert_file').set('value', self.app.gconfig.get('genesis', 'cert_file', ''))
-        ui.find('cert_key').set('value', self.app.gconfig.get('genesis', 'cert_key', ''))
+        ui.find('dformat').set('value', self.app.gconfig.get('genesis', 'dformat', '%d %b %Y'))
+        ui.find('tformat').set('value', self.app.gconfig.get('genesis', 'tformat', '%H:%M'))
+        ui.find('ssl').set('text', ('Enabled' if self.app.gconfig.get('genesis', 'ssl', '')=='1' else 'Disabled'))
         ui.find('nofx').set('checked', self.app.gconfig.get('genesis', 'nofx', '')=='1')
         ui.find('updcheck').set('checked', self.app.gconfig.get('genesis', 'updcheck', '')=='1')
         ui.find('purge').set('checked', self.app.gconfig.get('genesis', 'purge', '')=='1')
@@ -47,7 +48,7 @@ class ConfigPlugin(CategoryPlugin):
         # Updates
         self._updstat = UpdateCheck.get().get_status()
         if self._updstat[0] == True:
-            ui.find('updstatus').set('text', 'An update for Genesis is available. Version %s' % self._updstat[1])
+            ui.find('updstatus').set('text', 'An update for Genesis is available.')
             ui.find('updstatus').set('size', '3')
             ui.find('updaction').set('text', 'Update Now')
             ui.find('updaction').set('iconfont', 'gen-arrow-down-3')
@@ -64,7 +65,7 @@ class ConfigPlugin(CategoryPlugin):
             ui.remove('dlgUpdate')
 
         if self._changed:
-            self.put_message('warn', 'Restart required')
+            self.put_message('warn', 'A restart is required for this setting change to take effect.')
 
         return ui
 
@@ -72,7 +73,7 @@ class ConfigPlugin(CategoryPlugin):
     def on_click(self, event, params, vars=None):
         if params[0] == 'updaction':
             if self._updstat[0] == False:
-                UpdateCheck.get().check_updates()
+                UpdateCheck.get().check_updates(refresh=True)
             else:
                 self._update = True
         if params[0] == 'editconfig':
@@ -93,13 +94,10 @@ class ConfigPlugin(CategoryPlugin):
                     self._changed = True
                 if self.app.gconfig.get('genesis', 'bind_port', '') != vars.getvalue('bind_port', ''):
                     self._changed = True
-                if self.app.gconfig.get('genesis', 'ssl', '') != vars.getvalue('ssl', ''):
-                    self._changed = True
                 self.app.gconfig.set('genesis', 'bind_host', vars.getvalue('bind_host', ''))
                 self.app.gconfig.set('genesis', 'bind_port', vars.getvalue('bind_port', '8000'))
-                self.app.gconfig.set('genesis', 'ssl', vars.getvalue('ssl', '0'))
-                self.app.gconfig.set('genesis', 'cert_file', vars.getvalue('cert_file', ''))
-                self.app.gconfig.set('genesis', 'cert_key', vars.getvalue('cert_key', ''))
+                self.app.gconfig.set('genesis', 'dformat', vars.getvalue('dformat', '%d %b %Y'))
+                self.app.gconfig.set('genesis', 'tformat', vars.getvalue('tformat', '%H:%M'))
                 self.app.gconfig.set('genesis', 'auth_enabled', vars.getvalue('httpauth', '0'))
                 self.app.gconfig.set('genesis', 'nofx', vars.getvalue('nofx', '0'))
                 self.app.gconfig.set('genesis', 'updcheck', vars.getvalue('updcheck', '1'))

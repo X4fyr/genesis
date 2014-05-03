@@ -1,0 +1,82 @@
+<xml>
+    <toolbar>
+        <button id="condRestart" iconfont="gen-loop-2" text="Conditional restart"
+                warning="OpenVPN will perform a conditional restart. All sessions will be dropped. Are you sure?"/>
+        <button id="hardRestart" iconfont="gen-loop-2" text="Hard restart"
+                warning="OpenVPN will perform a hard restart. All sessions will be dropped. Are you sure?"/>
+    </toolbar>
+
+    <tabcontrol id="tabs" active="0">
+        <tabheader pid="tabs" text="Status" id="0"/>
+        <tabheader pid="tabs" text="Messages" id="1"/>
+        <tabbody pid="tabs" id="0">
+            <label size="5" text="Load statistics"/>
+            <pad>
+                <lt>
+                    <ltr>
+                        <ltd>
+                            <hcontainer>
+                                <iconfont iconfont="gen-switch"/>
+                                <label id="nclients"/>
+                            </hcontainer>
+                        </ltd>
+                        <ltd>
+                            <hcontainer>
+                                <iconfont iconfont="gen-download"/>
+                                <label id="bytesin"/>
+                            </hcontainer>
+                        </ltd>
+                        <ltd >
+                            <hcontainer>
+                                <iconfont iconfont="gen-upload"/>
+                                <label id="bytesout"/>
+                            </hcontainer>
+                        </ltd>
+                    </ltr>
+                </lt>
+            </pad>
+            <label size="5" text="Active VPN Clients"/>
+            <pad>
+                <dt id="clients" width="100%">
+                    <dtr header="True">
+                        <dth/>
+                        <dth>
+                            <label text="Common Name"/>
+                        </dth>
+                        <dth>
+                            <label text="Real Address"/>
+                        </dth>
+                        <dth>
+                            <label text="Virtual Address"/>
+                        </dth>
+                        <dth>
+                            <label text="Bytes Recieved"/>
+                        </dth>
+                        <dth>
+                            <label text="Bytes Sent"/>
+                        </dth>
+                        <dth>
+                            <label text="Connected Since"/>
+                        </dth>
+                        <dth/>
+                    </dtr>
+                </dt>
+            </pad>
+        </tabbody>
+        <tabbody pid="tabs" id="1">
+            <dt id="messages" width="100%">
+                <dtr header="True">
+                    <dth width="160">
+                        <label text="Timestamp"/>
+                    </dth>
+                    <dth>
+                        <label text="Flags"/>
+                    </dth>
+                    <dth>
+                        <label text="Text"/>
+                    </dth>
+                </dtr>
+            </dt>
+        </tabbody>
+    </tabcontrol>
+</xml>
