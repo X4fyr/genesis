@@ -1,0 +1,48 @@
+{
+    "name": "Tor Client",
+    "type": "plugin",
+    "icon": "gen-bubbles",
+    "description": {
+        "short": "Connect to the Tor network",
+        "long": "Make a local proxy to the Tor-Network and let your Applications run through these."
+    },
+    "categories": [
+    {
+        "primary": "System",
+        "secondary": ["Proxy", "Tor"]
+    }
+    ],
+    "version": "0.1",
+    "author": "x4fyr",
+    "homepage": "https://github.com/X4fyr",
+    "app_author": "The Tor Project, Inc.",
+    "app_homepage": "https://www.torproject.org/",
+    "logo": false,
+    "screenshots": [],
+    "services": [
+    {
+        "name": "Tor",
+        "binary": "tor",
+        "ports": ["tcp", "9050"]
+    }
+    ],
+    "modules": ["main", "backend"],
+    "platforms": ["any"],
+    "dependencies": {
+        "any": [
+        {
+            "type": "app",
+            "name": "Tor",
+            "package": "tor",
+            "binary": "tor"
+        },
+        {
+            "type": "module",
+            "name": "Stem",
+            "package": "stem",
+            "binary": "stem.control"
+        }
+        ]
+    },
+    "generation": 1
+}
