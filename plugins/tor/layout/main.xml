@@ -1,0 +1,206 @@
+<xml>
+
+    <label text="Tor" size="5" />
+
+
+    <pad id="main">
+        <toolbar>
+            <btn id="btnClientConf" text="Client Settings" iconfont="gen-settings" />
+            <btn id="btnRelayConf" text="Relay Settings" iconfont="gen-settings"/>
+            <btn id="btnProxyFw" text="Proxy/Facist Firewall" iconfont="gen-settings"/>
+        </toolbar>
+
+        <tabcontrol id="tabs" active="0">
+            <tabheader text="Info/Stats" id="0"/>
+            <tabheader text="Hidden Service" id="1"/>
+
+            <tabbody id="0">
+                <pad id="Info/Stats">
+                    <lt width="100%">
+
+                        <ltr>
+                            <ltd>
+                                <label bold="true" text="Version:"/>
+                            </ltd>
+                            <ltd>
+                                <label id="version" text="Empty"/>
+                            </ltd>
+                        </ltr>
+                        <ltr>
+                            <ltd>
+                                <label bold="true" text="Status:"/>
+                            </ltd>
+                            <ltd>
+                                <label id="status" text="Empty"/>
+                            </ltd>
+                        </ltr>
+                        <ltr>
+                            <ltd>
+                                <label bold="true" text="External IP:"/>
+                            </ltd>
+                            <ltd>
+                                <label id="ext_ip" text="Empty"/>
+                            </ltd>
+                        </ltr>
+                        <ltr>
+                            <ltd>
+                                <label bold="true" text="Read:"/>
+                            </ltd>
+                            <ltd>
+                                <label id="read" text="Empty"/>
+                            </ltd>
+                        </ltr>
+                        <ltr>
+                            <ltd>
+                                <label bold="true" text="Written:"/>
+                            </ltd>
+                            <ltd>
+                                <label id="written" text="Empty"/>
+                            </ltd>
+                        </ltr>
+
+                    </lt>
+                </pad>
+            </tabbody>
+
+            <tabbody id="1">
+                <pad id="Hiddenservice"/>
+            </tabbody>
+
+        </tabcontrol>
+    </pad>
+
+    <dialogbox id="dlgClientConf">
+        <label size="3" text="General"/>
+        <formline text="SOCKS Adresses:Ports:" help="[address:]port|auto, comma-separated list">
+            <textinput id="socksports" placeholder="localhost:9050"/>
+        </formline>
+        <formline text="SOCKS Policy:">
+            <textinput id="sockspolicy" placeholder="policy"/>
+        </formline>
+        <formline text="Use IPv6?">
+            <checkbox id="ipv6"/>
+            <label size="2" bold="true" text="Prefer?"/>
+            <checkbox id="ipv6_prefer"/>
+        </formline>
+
+        <label size="3" text="Node Policies"/>
+        <formline text="Exit Nodes:">
+            <textinput id="exit_nodes" placeholder="policy"/>
+        </formline>
+        <formline text="Entry Nodes:">
+            <textinput id="entry_nodes" placeholder="policy"/>
+        </formline>
+        <formline text="Exclude Nodes:">
+            <textinput id="exclude_nodes" placeholder="policy"/>
+        </formline>
+        <formline text="Exclude Exit Nodes:">
+            <textinput id="exclude_exit_nodes" placeholder="policy"/>
+        </formline>
+        <formline text="Strict Nodes:">
+            <checkbox id="strict_nodes"/>
+        </formline>
+        <label text="Policys can be a list of identity fingerprints, nicknames, country codes and address patterns of nodes."/>
+        <label text="Example: ExcludeNodes SlowServer, ABCD1234CDEF5678ABCD1234CDEF5678ABCD1234, {cc}, 255.254.0.0/8"/>
+        <outlinklabel url="https://www.torproject.org/docs/tor-manual.html" text="Further reading"/>
+
+        <label size="3" text="Bridge"/>
+        <formline text="Active:">
+            <checkbox id="bridge_active"/>
+        </formline>
+        <formline text="Address:">
+            <textinput id="node_pol" placeholder="policy"/>
+        </formline>
+    </dialogbox>
+
+    <dialogbox id="dlgRelayConf">
+        <label size="3" text="General"/>
+        <formline text="Port" help="Leave empty to deactivate Relay.">
+            <textinput id="orport"/>
+        </formline>
+        <formline text="Address" help="Leave empty to let tor make a guess">
+            <textinput id="oraddress"/>
+        </formline>
+        <formline text="Nickname">
+            <textinput id="ornickname"/>
+        </formline>
+        <formline text="Contact Info" help="Used to contacy you if something is misconfigured or something else is going wrong. This is published and archived and might be used by spammers. So you might obscure your email address. Example: 0xFFFFFFFF Random Person &lt;nobody AT example dot com&gt; (pgp/gpg fingerprint not necessary)">
+            <textinput id="orcontactinfo"/>
+        </formline>
+        <formline text="Directory Port" help="Port to advertise directory connections. No necessary, but if theres enough bandwidth, it helps the torproject.">
+            <textinput id="dirport"/>
+        </formline>
+        <formline text="Family" help="Fill with key fingerprints, if you run more than one relay.">
+            <textinput id="myfamily"/>
+        </formline>
+        <formline text="Exit Policy" help="accept|reject ADDR[/MASK][:PORT], Examples:'accept 18.7.22.69:*,reject 18.0.0.0/8:*,accept *:*'; All internal and link-local networks are rejected.">
+            <textinput id="exitpolicy"/>
+        </formline>
+        <formline text="Allow to use IPv6">
+            <checkbox id="relay_ipv6"/>
+        </formline>
+
+        <label size="3" text="Bandwidth/Traffic Restriction"/>
+        <label size="2" bold="true" text="Bandwidth"/>
+        <formline text="Rate" help="min. 20 KB">
+            <textinput id="relay_rate"/>
+        </formline>
+        <formline text="Burst">
+            <textinput id="relay_burst"/>
+        </formline>
+        <label size="2" bold="true" text="Traffic"/>
+        <formline text="Maximum" help="Counts for each way (in/out) separated.">
+            <textinput id="accountingamount"/>
+        </formline>
+        <formline text="Period Start" help="day|week|month [day] HH:MM, for week 1 is monday">
+            <textinput id="accountingstart" placeholder="month 1 0:00"/>
+        </formline>
+
+        <label size="3" text="Bridge relay"/>
+        <formline text="Active?" help="Bridge relays (or 'bridges') are Tor relays that aren't listed in the main directory. Since there is no complete public list of them, even an ISP that filters connections to all the known Tor relays probably won't be able to block all the bridges. Also, websites won't treat you differently because they won't know you're running Tor. If you can be a real relay, please do; but if not, be a bridge!">
+            <checkbox id="bridge"/>
+        </formline>
+        <formline text="Publish Server Descriptor" help="By default, Tor will advertise your bridge to users through various mechanisms like https://bridges.torproject.org/. If you want to run a private bridge, for example because you'll give out your bridge address manually to your friends, uncheck this.">
+            <checkbox id="pubservdescriptor" checked="1"/>
+        </formline>
+
+    </dialogbox>
+
+    <dialogbox id="dlgProxyFw">
+        <label size="3" text="Proxy"/>
+        <formline text="Select Protokoll">
+            <selectinput id="protokoll" name="Protokoll">
+                <selectoption value="http" text="HTTP"/>
+                <selectoption value="https" text="HTTPS"/>
+                <selectoption value="socks4" text="SOCKS4"/>
+                <selectoption value="socks5" text="SOCKS5"/>
+            </selectinput>
+        </formline>
+        <formline text="Address" help="host:[port]">
+            <textinput id="proxy_address" placeholder="Default Ports: HTTP:80 HTTPS:443 SOCKS:1080"/>
+        </formline>
+        <formline text="Username">
+            <textinput id="proxy_username"/>
+        </formline>
+        <formline text="Password" help="HTTP(S) and SOCKS5 only">
+            <textinput id="proxy_password"/>
+        </formline>
+
+        <label size="3" text="Fascist Firewall"/>
+        <formline text="Activate Fascist Firewall Support" help="Only create connections on the following open ports.">
+            <checkbox id="fw_active"/>
+        </formline>
+        <formline text="Open Ports" help="If you use the two above options you will not able to run a server and maybe restrict access to hidden services (yours and others). You should prefere the following Option.">
+            <textinput id="fw_ports" placeholder="80,443"/>
+        </formline>
+        <formline text="Reachable Addresses" help="ADDR[/MASK][:PORT]. Example: 99.0.0.0/8, reject 18.0.0.0/8:80, accept *:80">
+            <textinput id="reachable_addresses"/>
+        </formline>
+    </dialogbox>
+
+    <tab id="fault">
+        <label size="5" text="There was a fault in the backend."/>
+        <label text="Check if the Tor Service is running."/>
+        <label text="If so, this might be caused by a misconfigured torrc. Currently this plugin depends on the default controlport (9051) and cookie-authentication. This might be changed in future."/>
+    </tab>
+</xml>

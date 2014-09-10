@@ -1,7 +1,7 @@
 {
     "name": "Tor Client",
     "type": "plugin",
-    "icon": "gen-bubbles",
+    "icon": "gen-network",
     "description": {
         "short": "Connect to the Tor network",
         "long": "Make a local proxy to the Tor-Network and let your Applications run through these."
@@ -12,7 +12,7 @@
         "secondary": ["Proxy", "Tor"]
     }
     ],
-    "version": "0.1",
+    "version": "0.1.1",
     "author": "x4fyr",
     "homepage": "https://github.com/X4fyr",
     "app_author": "The Tor Project, Inc.",
@@ -23,7 +23,7 @@
     {
         "name": "Tor",
         "binary": "tor",
-        "ports": ["tcp", "9050"]
+        "ports": []
     }
     ],
     "modules": ["main", "backend"],
