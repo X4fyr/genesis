@@ -40,12 +40,6 @@ class Tor(CategoryPlugin):
             ui.remove("dlgProxyFw")
         else:
             ui.remove("fault")
-            status = get.status()
-            ui.find("version").set("text", status["version"])
-            ui.find("status").set("text", status["status"])
-            ui.find("ext_ip").set("text", status["ext_ip"])
-            ui.find("read").set("text", status["read"])
-            ui.find("written").set("text", status["written"])
 
             # Dialog control
             if self._clientconfig is None:
@@ -56,6 +50,13 @@ class Tor(CategoryPlugin):
 
             if self._proxyfw is None:
                 ui.remove("dlgProxyFw")
+
+            status = get.status()
+            for key in status:
+                ui.find(key).set("text", status[key])
+            clientConf = get.clientConf()
+            for key in clientConf:
+                ui.find(key).set(clientConf[key][0], clientConf[key][1])
             del get
         finally:
             return ui

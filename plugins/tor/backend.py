@@ -36,8 +36,8 @@ class Get(object):
             pass
 
     def status(self):
-        """print status (for debbuging)"""
-        _GETINFO = {
+        """Get general status configuration"""
+        _GETINFO = {    # TODO: Cleanup when all info is set
             'config-file': 'config-file',
             'address-mapping': 'address-mappings/all',
             'ext_ip': 'address',
@@ -63,6 +63,32 @@ class Get(object):
             'read': self._controller.get_info(_GETINFO["read"]) + " B",
             'written': self._controller.get_info(_GETINFO["written"]) + " B"
             }
+        return _status_package
+
+    def clientConf(self):
+        """Get current Client Configuration for ClientDlg"""
+        _GETINFO = {    # TODO: Cleanup whean all info is set
+                'socksports': ['value','SocksPort'],
+                'sockspolicy': ['value', 'SocksPolicy'],
+                'ipv6': ['checked', 'ClientUseIPv6'],
+                'ipv6_prefer': ['checked','ClientPreferIPv6ORPort'],
+                'exit_nodes': ['value', 'ExitNodes'],
+                'entry_nodes': ['value', 'EntryNodes'],
+                'exclude_nodes': ['value', 'ExcludeNodes'],
+                'exclude_exit_nodes': ['value', 'ExcludeExitNodes'],
+                'strict_nodes': ['checked', 'StrictNodes'],
+                'bridge_active': ['checked', 'UseBridges'],
+                'bridge_addr': ['value','Bridge']
+                }
+        _status_package = {}
+        for key in _GETINFO:
+            if _GETINFO[key][0] == 'checked':
+                if self._controller.get_conf(_GETINFO[key][1]) == 1:
+                    _status_package[key] = ['checked', 'True']
+                else:
+                    _status_package[key] = ['checked', 'False']
+            else:
+                _status_package[key] = [_GETINFO[key][0], self._controller.get_conf(_GETINFO[key][1])]
         return _status_package
 # 
 # 
